@@ -1,5 +1,7 @@
 # Jeopardy Study Game
 
+https://weaponxd253.github.io/jeopardyStudy/
+
 A simple web-based Jeopardy-style game designed for studying and reinforcing knowledge through an interactive quiz format.
 
 ## Features
