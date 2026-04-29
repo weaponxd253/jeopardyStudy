@@ -1,220 +1,351 @@
 document.addEventListener('DOMContentLoaded', () => {
-    let score = 0;
-    let timerInterval;
-    let questions = {};
-    let categories = [];
 
-    // Event listener for the load button
-    document.getElementById('load-button').addEventListener('click', () => {
-        const selectedTopic = document.getElementById('topic').value;
-        let jsonURL;
+  // ─── State ─────────────────────────────────────────────────────
+  const gameState = {
+    score: 0,
+    questions: {},
+    categories: [],
+    timerInterval: null,
+    activeQuestion: null,   // { category, value, element }
+    answeredCells: new Set(),
+  };
 
-        // Determine which URL to load based on the selected topic
-        switch (selectedTopic) {
-            case 'programming':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/programming.json';
-                break;
-            case 'animals':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/animals.json';
-                break;
-            case 'biology':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/biology.json';
-                break;
-            case 'user_design':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/user_design.json';
-                break;
-            case 'basic_it':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/basic_it.json';
-                break;
-            case 'sql_developer':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/sql_developer.json';
-                break;
-            case 'sports':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/sports.json';
-                    break;
-            case 'lpn':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/lpn.json';
-                    break;
-            case 'gaming':
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/gamingConsoles.json';
-                    break;
-                    
-            default:
-                jsonURL = 'https://weaponxd253.github.io/JeopardyApi/categories.json';
-        }
+  // ─── DOM Refs ───────────────────────────────────────────────────
+  const el = {
+    board:            document.getElementById('board'),
+    score:            document.getElementById('score'),
+    loadBtn:          document.getElementById('load-button'),
+    resetBtn:         document.getElementById('reset-button'),
+    randomBtn:        document.getElementById('random-button'),
+    topicSelect:      document.getElementById('topic'),
+    modal:            document.getElementById('modal'),
+    modalContent:     document.querySelector('.modal-content'),
+    closeBtn:         document.getElementById('close-btn'),
+    questionText:     document.getElementById('question-text'),
+    modalCategory:    document.getElementById('modal-category-label'),
+    modalValue:       document.getElementById('modal-value-label'),
+    timerBar:         document.getElementById('timer-bar'),
+    timeLeft:         document.getElementById('time-left'),
+    answer:           document.getElementById('answer'),
+    submitBtn:        document.getElementById('submit-answer'),
+    resultArea:       document.getElementById('result-area'),
+    loadingState:     document.getElementById('loading-state'),
+    emptyState:       document.getElementById('empty-state'),
+  };
 
-        // Fetch the appropriate JSON file from the URL
-        fetch(jsonURL)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                categories = data.categories;
-                questions = data.questions;
-                createCategories(categories);
-                resetGame();
-            })
-            .catch(error => console.error('Error fetching data:', error));
-    });
+  // ─── Load Topic ─────────────────────────────────────────────────
+  el.loadBtn.addEventListener('click', loadTopic);
 
-    document.getElementById('random-category-button').addEventListener('click', () => {
-        const topicSelect = document.getElementById('topic');
-        const options = topicSelect.options;
-        const randomIndex = Math.floor(Math.random() * options.length);
-        topicSelect.selectedIndex = randomIndex;
-    });
-    
+  function loadTopic() {
+    const topic = el.topicSelect.value;
+    const jsonURL = `https://weaponxd253.github.io/JeopardyApi/${topicToFilename(topic)}.json`;
 
-    function createCategories(categories) {
-        const jeopardyBoard = document.querySelector('.jeopardy-board');
-        jeopardyBoard.innerHTML = ''; // Clear existing content
+    showLoading(true);
 
-        const categoryElements = categories.map(category => {
-            const div = document.createElement('div');
-            div.className = 'category';
-            div.id = `category${category.id}`;
-            div.textContent = category.name;
-            return div;
-        });
+    fetch(jsonURL)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        gameState.categories = data.categories;
+        gameState.questions   = data.questions;
+        gameState.answeredCells.clear();
+        resetScore();
+        buildBoard();
+        showLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to load topic:', err);
+        showLoading(false);
+        el.emptyState.classList.remove('hidden');
+        el.emptyState.querySelector('p').innerHTML =
+          '<strong>Failed to load — check your connection and try again.</strong>';
+      });
+  }
 
-        // Add the categories to the board
-        categoryElements.forEach(categoryElement => jeopardyBoard.appendChild(categoryElement));
 
-        // Add the questions under each category
-        for (let i = 1; i <= 5; i++) { // Assuming 5 questions per category
-            const questionsRow = document.createElement('div');
-            questionsRow.className = 'questions';
-
-            categories.forEach(category => {
-                const questionDiv = document.createElement('div');
-                questionDiv.className = 'question';
-                questionDiv.dataset.category = category.id;
-                questionDiv.dataset.value = i * 100; // Assuming values are 100, 200, ..., 500
-                questionDiv.textContent = i * 100;
-                questionsRow.appendChild(questionDiv);
-            });
-
-            jeopardyBoard.appendChild(questionsRow);
-        }
-
-        // Add event listeners to the questions
-        document.querySelectorAll('.question').forEach(item => {
-            item.addEventListener('click', handleQuestionClick);
-        });
-    }
-
-    function handleQuestionClick(event) {
-        clearInterval(timerInterval); // Clear any existing timer
-        const category = event.target.getAttribute('data-category');
-        const value = event.target.getAttribute('data-value');
-        const question = questions[category]?.[value]?.question;
-
-        if (question) {
-            document.getElementById('question-text').innerText = question;
-            gsap.to("#modal", { display: 'flex', duration: 0 });
-            gsap.to(".modal-content", { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)" });
-            document.querySelector('.close-button').style.display = 'none'; // Hide the close button
-            startTimer(30, category, value, event.target);
-
-            const submitButton = document.getElementById('submit-answer');
-            submitButton.onclick = () => {
-                submitAnswer(category, value, event.target);
-            };
-        } else {
-            console.error('Question not found for category:', category, 'value:', value);
-        }
-    }
-
-    document.getElementById('reset-button').onclick = () => {
-        resetGame();
+  function topicToFilename(topic) {
+    const overrides = {
+      gaming: 'gamingConsoles',
     };
+    return overrides[topic] ?? topic;
+  }
 
-    function resetGame() {
-        score = 0;
-        document.getElementById('score').innerText = score;
-        document.querySelectorAll('.question').forEach(item => {
-            item.style.backgroundColor = '#343a40';
-            item.style.pointerEvents = 'auto'; // Enable clicking again
-        });
-        gsap.to(".question", { opacity: 0, duration: 0 });
-        gsap.to(".question", { opacity: 1, duration: 1, stagger: 0.1 });
+  function showLoading(isLoading) {
+    el.loadingState.classList.toggle('hidden', !isLoading);
+    el.emptyState.classList.add('hidden');
+    el.board.classList.add('hidden');
+    if (!isLoading && gameState.categories.length) {
+      el.board.classList.remove('hidden');
+    }
+  }
+
+  // ─── Random Category ────────────────────────────────────────────
+  el.randomBtn.addEventListener('click', () => {
+    const options = el.topicSelect.options;
+    el.topicSelect.selectedIndex = Math.floor(Math.random() * options.length);
+  });
+
+  // ─── Reset ──────────────────────────────────────────────────────
+  el.resetBtn.addEventListener('click', () => {
+    if (!gameState.categories.length) return;
+    gameState.answeredCells.clear();
+    resetScore();
+    buildBoard();
+  });
+
+  function resetScore() {
+    gameState.score = 0;
+    updateScoreDisplay();
+  }
+
+  function updateScoreDisplay() {
+    const s = gameState.score;
+    el.score.textContent = (s < 0 ? '-$' : '$') + Math.abs(s).toLocaleString();
+    el.score.classList.toggle('negative', s < 0);
+  }
+
+  // ─── Build Board ────────────────────────────────────────────────
+  function buildBoard() {
+    const { categories, questions } = gameState;
+    el.board.innerHTML = '';
+
+    // Dynamically set grid columns from actual category count
+    const colCount = categories.length;
+    el.board.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
+
+    // Derive the dollar values from the first category's question keys
+    const firstCatId = categories[0]?.id;
+    const values = firstCatId
+      ? Object.keys(questions[firstCatId] ?? {})
+          .map(Number)
+          .sort((a, b) => a - b)
+      : [100, 200, 300, 400, 500]; // fallback
+
+    // Row 1: Category headers
+    categories.forEach(cat => {
+      const div = document.createElement('div');
+      div.className = 'cat-header';
+      div.textContent = cat.name;
+      el.board.appendChild(div);
+    });
+
+    // Remaining rows: question cells per value
+    values.forEach((value, rowIndex) => {
+      categories.forEach(cat => {
+        const cell = document.createElement('div');
+        cell.className = 'question-cell';
+        cell.dataset.category = cat.id;
+        cell.dataset.value = value;
+        cell.dataset.catName = cat.name;
+
+        const cellKey = `${cat.id}-${value}`;
+        if (gameState.answeredCells.has(cellKey)) {
+          cell.classList.add('answered');
+        } else {
+          cell.textContent = `$${value.toLocaleString()}`;
+        }
+
+        // Stagger reveal animation
+        cell.style.animationDelay = `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
+        cell.addEventListener('click', handleCellClick);
+        el.board.appendChild(cell);
+      });
+    });
+  }
+
+  // ─── Handle Cell Click ──────────────────────────────────────────
+  function handleCellClick(event) {
+    const cell = event.currentTarget;
+    if (cell.classList.contains('answered')) return;
+
+    const category = cell.dataset.category;
+    const value    = parseInt(cell.dataset.value);
+    const catName  = cell.dataset.catName;
+    const questionData = gameState.questions[category]?.[value];
+
+    if (!questionData) {
+      console.warn('No question found for', category, value);
+      return;
     }
 
-    function startTimer(seconds, category, value, questionElement) {
-        let timeLeft = seconds;
-        document.getElementById('time-left').innerText = timeLeft;
-        timerInterval = setInterval(() => {
-            timeLeft -= 1;
-            document.getElementById('time-left').innerText = timeLeft;
-            if (timeLeft <= 0) {
-                clearInterval(timerInterval);
-                submitAnswer(category, value, questionElement, true); // Automatically submit the answer when time is up
-            }
-        }, 1000);
+    gameState.activeQuestion = { category, value, element: cell };
+    openModal(catName, value, questionData.question);
+  }
+
+  // ─── Modal ──────────────────────────────────────────────────────
+  function openModal(catName, value, questionText) {
+    clearTimer();
+    el.modalCategory.textContent = catName.toUpperCase();
+    el.modalValue.textContent    = `$${value.toLocaleString()}`;
+    el.questionText.textContent  = questionText;
+    el.answer.value              = '';           // Clear previous answer
+    el.resultArea.classList.add('hidden');
+    el.resultArea.className      = 'result-area hidden';
+    el.resultArea.innerHTML      = '';
+    el.submitBtn.disabled        = false;
+    el.answer.disabled           = false;
+    el.closeBtn.classList.add('hidden');         // Hide close during active question
+
+    el.modal.classList.add('open');
+    requestAnimationFrame(() => el.answer.focus());
+
+    startTimer(30);
+  }
+
+  function closeModal() {
+    clearTimer();
+    el.modal.classList.remove('open');
+    gameState.activeQuestion = null;
+  }
+
+  // Close button (only visible after answer revealed)
+  el.closeBtn.addEventListener('click', closeModal);
+
+  // Clicking the backdrop also closes (after answer phase)
+  document.querySelector('.modal-backdrop').addEventListener('click', () => {
+    if (!el.closeBtn.classList.contains('hidden')) {
+      closeModal();
+    }
+  });
+
+  // ─── Timer ──────────────────────────────────────────────────────
+  function startTimer(seconds) {
+    let timeLeft = seconds;
+    el.timeLeft.textContent = timeLeft;
+    el.timerBar.style.transform = 'scaleX(1)';
+    el.timerBar.style.transition = 'none';
+
+    // Trigger reflow so the transition reset takes effect
+    void el.timerBar.offsetWidth;
+    el.timerBar.style.transition = `transform ${seconds}s linear`;
+    el.timerBar.style.transform  = 'scaleX(0)';
+
+    gameState.timerInterval = setInterval(() => {
+      timeLeft -= 1;
+      el.timeLeft.textContent = timeLeft;
+
+      if (timeLeft <= 5) {
+        el.timerBar.style.background = 'var(--red)';
+      }
+
+      if (timeLeft <= 0) {
+        clearTimer();
+        handleTimeUp();
+      }
+    }, 1000);
+  }
+
+  function clearTimer() {
+    clearInterval(gameState.timerInterval);
+    gameState.timerInterval = null;
+  }
+
+  function handleTimeUp() {
+    const { category, value, element } = gameState.activeQuestion ?? {};
+    if (!category) return;
+
+    const questionData = gameState.questions[category]?.[value];
+    const answers      = questionData?.answers ?? [];
+    const explanation  = questionData?.explanation ?? '';
+
+    el.submitBtn.disabled = true;
+    el.answer.disabled    = true;
+
+    showResult('timeup', '⏰ Time\'s Up!', answers, explanation);
+    markAnswered(element, `${category}-${value}`);
+    scheduleClose(5);
+  }
+
+  // ─── Submit Answer ──────────────────────────────────────────────
+  el.submitBtn.addEventListener('click', submitAnswer);
+
+  // Enter key submits
+  el.answer.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !el.submitBtn.disabled) submitAnswer();
+  });
+
+  function submitAnswer() {
+    clearTimer();
+
+    const { category, value, element } = gameState.activeQuestion ?? {};
+    if (!category) return;
+
+    const questionData = gameState.questions[category]?.[value];
+    if (!questionData) return;
+
+    const userAnswer  = el.answer.value.trim().toLowerCase();
+    const accepted    = questionData.answers;
+    const explanation = questionData.explanation ?? '';
+
+    const isCorrect = accepted.some(a => userAnswer === a.toLowerCase());
+
+    el.submitBtn.disabled = true;
+    el.answer.disabled    = true;
+
+    if (isCorrect) {
+      gameState.score += value;
+      showResult('correct', '✓ Correct!', accepted, explanation);
+    } else {
+      gameState.score -= value;
+      showResult('incorrect', '✗ Incorrect', accepted, explanation);
     }
 
-    function submitAnswer(category, value, questionElement = null, timeUp = false) {
-        clearInterval(timerInterval);
-        const userAnswer = document.getElementById('answer').value.trim().toLowerCase(); // Convert to lowercase
+    updateScoreDisplay();
+    markAnswered(element, `${category}-${value}`);
+    scheduleClose(5);
+  }
 
-        if (!category || !value) {
-            console.error('Question data not found for category:', category, 'value:', value);
-            return;
-        }
+  // ─── Result Display ─────────────────────────────────────────────
+  function showResult(type, headline, answers, explanation) {
+    el.resultArea.className = `result-area ${type}`;
+    el.resultArea.innerHTML = `
+      <div class="result-headline">${headline}</div>
+      ${type !== 'correct'
+        ? `<div class="result-answers">Accepted: ${answers.join(', ')}</div>`
+        : ''}
+      ${explanation
+        ? `<div class="result-explanation">${explanation}</div>`
+        : ''}
+      <div class="result-closing-bar">
+        <div class="result-closing-fill" id="closing-fill"></div>
+      </div>
+    `;
+    el.resultArea.classList.remove('hidden');
 
-        const questionData = questions[category]?.[value];
-
-        if (!questionData) {
-            console.error('Question data not found for category:', category, 'value:', value);
-            return;
-        }
-
-        const acceptableAnswers = questionData.answers;
-        const explanation = questionData.explanation;
-
-        let isCorrect = false;
-        if (!timeUp) {
-            isCorrect = acceptableAnswers.some(answer => userAnswer === answer.toLowerCase());
-        }
-
-        const resultClass = isCorrect ? 'correct-answer' : 'incorrect-answer';
-        const resultText = isCorrect ? 'Correct!' : `Incorrect. The correct answers include: ${acceptableAnswers.join(', ')}`;
-
-        const resultElement = document.createElement('div');
-        resultElement.className = resultClass;
-        resultElement.innerHTML = `<p>${resultText}</p><p>${explanation}</p>`;
-        document.querySelector('.modal-content').appendChild(resultElement);
-
-        if (isCorrect) {
-            score += parseInt(value);
-        } else if (!timeUp) {
-            score -= parseInt(value);
-        }
-
-        let closeTimeLeft = 5; // Time to display the result before closing the modal
-        document.getElementById('time-left').innerText = closeTimeLeft;
-
-        const closeTimerInterval = setInterval(() => {
-            closeTimeLeft -= 1;
-            document.getElementById('time-left').innerText = closeTimeLeft;
-            if (closeTimeLeft <= 0) {
-                clearInterval(closeTimerInterval);
-                gsap.to(resultElement, { opacity: 0, duration: 0.5, onComplete: () => {
-                    document.querySelector('.modal-content').removeChild(resultElement);
-                    gsap.to(".modal-content", { opacity: 0, scale: 0.8, duration: 0.5, onComplete: () => {
-                        document.getElementById('modal').style.display = 'none';
-                        document.querySelector('.close-button').style.display = 'block'; // Show the close button again
-                    }});
-                    if (questionElement) {
-                        questionElement.style.backgroundColor = 'gray';
-                        questionElement.style.pointerEvents = 'none'; // Disable clicking on this question again
-                    }
-                    document.getElementById('score').innerText = score;
-                }});
-            }
-        }, 1000);
+    // Animate the closing progress bar
+    const fill = document.getElementById('closing-fill');
+    if (fill) {
+      fill.style.transform        = 'scaleX(1)';
+      fill.style.transition       = 'none';
+      void fill.offsetWidth;
+      fill.style.transition       = 'transform 5s linear';
+      fill.style.transformOrigin  = 'left';
+      fill.style.transform        = 'scaleX(0)';
     }
+  }
+
+  function markAnswered(element, key) {
+    if (!element) return;
+    gameState.answeredCells.add(key);
+    element.classList.add('answered');
+    element.textContent = '';
+  }
+
+  // ─── Auto-close modal after result ─────────────────────────────
+  function scheduleClose(seconds) {
+    el.closeBtn.classList.remove('hidden'); // Allow manual close during countdown
+    let left = seconds;
+
+    const interval = setInterval(() => {
+      left -= 1;
+      el.timeLeft.textContent = left;
+      if (left <= 0) {
+        clearInterval(interval);
+        closeModal();
+      }
+    }, 1000);
+  }
+
 });
