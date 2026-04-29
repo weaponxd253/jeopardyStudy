@@ -1,53 +1,93 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jeopardy Study</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jeopardy Study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
 </head>
 <body>
-    <header>
-        <h1>Jeopardy</h1>
-    </header>
 
-    <main>
-        <div class="score-board">
-            <h2>Score: <span id="score">0</span></h2>
-            <button id="reset-button">Reset</button>
-        </div>
-        <div class="topic-selection">
-            <label for="topic">Select Topic:</label>
-            <select id="topic">
-                <option value="programming">Programming</option>
-                <option value="animals">Animals</option>
-                <option value="biology">Biology</option>
-                <option value="user_design">User Design</option>
-                <option value="basic_it">Basic IT</option>
-                <option value="sql_developer">SQL Developer</option>
-                <option value="sports">Sports</option>
-                <option value="gaming">Game consoles</option>
-                <option value="lpn">Licensed Practical Nurse</option>
-            </select>
-            <button id="load-button">Play</button>
-            <button id="random-category-button">Random Category</button> 
+  <div class="bg-grid"></div>
 
+  <header>
+    <div class="header-inner">
+      <h1 class="logo">JEOPARDY!</h1>
+      <div class="header-controls">
+        <div class="score-display">
+          <span class="score-label">SCORE</span>
+          <span id="score" class="score-value">$0</span>
         </div>
-        <div class="jeopardy-board"></div>
-    </main>
+        <button id="reset-button" class="btn btn-ghost">↺ Reset</button>
+      </div>
+    </div>
+  </header>
 
-    <!-- Modal for displaying questions and answers -->
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <span class="close-button">&times;</span>
-            <div id="question-text"></div>
-            <div id="timer">Time left: <span id="time-left">30</span>s</div>
-            <input type="text" id="answer" placeholder="Your answer">
-            <button id="submit-answer">Submit</button>
-        </div>
+  <main>
+    <div class="topic-bar">
+      <label for="topic" class="topic-label">Topic</label>
+      <div class="topic-controls">
+        <select id="topic">
+          <option value="programming">Programming</option>
+          <option value="animals">Animals</option>
+          <option value="biology">Biology</option>
+          <option value="user_design">User Design</option>
+          <option value="basic_it">Basic IT</option>
+          <option value="sql_developer">SQL Developer</option>
+          <option value="sports">Sports</option>
+          <option value="gaming">Game Consoles</option>
+          <option value="lpn">Licensed Practical Nurse</option>
+        </select>
+        <button id="random-button" class="btn btn-ghost" title="Random topic">⚄ Random</button>
+        <button id="load-button" class="btn btn-primary">▶ Play</button>
+      </div>
     </div>
 
-    <script src="script.js"></script>
+    <!-- Loading state -->
+    <div id="loading-state" class="loading-state hidden">
+      <div class="spinner"></div>
+      <p>Loading board…</p>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon">🎯</div>
+      <p>Select a topic and press <strong>Play</strong> to start</p>
+    </div>
+
+    <!-- Game board -->
+    <div id="board" class="jeopardy-board hidden"></div>
+  </main>
+
+  <!-- Question Modal -->
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="question-text">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <button class="close-btn" id="close-btn" aria-label="Close">&times;</button>
+
+      <div class="modal-category-label" id="modal-category-label"></div>
+      <div class="modal-value-label" id="modal-value-label"></div>
+
+      <div id="question-text" class="question-text"></div>
+
+      <div id="timer-bar-container" class="timer-bar-container">
+        <div id="timer-bar" class="timer-bar"></div>
+        <span id="time-left" class="time-left-text">30</span>
+      </div>
+
+      <div class="answer-row">
+        <input type="text" id="answer" placeholder="What is…?" autocomplete="off" />
+        <button id="submit-answer" class="btn btn-primary">Submit</button>
+      </div>
+
+      <div id="result-area" class="result-area hidden"></div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
