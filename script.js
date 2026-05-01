@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+  // ─── Config ─────────────────────────────────────────────────────
+  const BASE_URL      = 'https://weaponxd253.github.io/JeopardyApi/';
+  const MANIFEST_URL  = `${BASE_URL}topics.json`;
+
   // ─── State ─────────────────────────────────────────────────────
   const gameState = {
     score: 0,
@@ -33,12 +37,51 @@ document.addEventListener('DOMContentLoaded', () => {
     emptyState:       document.getElementById('empty-state'),
   };
 
+  // ─── Load Topic Manifest ────────────────────────────────────────
+  // Fetches topics.json and populates the <select> dynamically.
+  // To add a new topic: add a JSON file to your repo and add one
+  // entry to topics.json — no HTML changes needed.
+  function loadManifest() {
+    fetch(MANIFEST_URL)
+      .then(res => {
+        if (!res.ok) throw new Error(`Manifest HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(topics => {
+        if (!Array.isArray(topics) || topics.length === 0) {
+          throw new Error('topics.json is empty or malformed');
+        }
+
+        // Clear the placeholder and populate options
+        el.topicSelect.innerHTML = '';
+        topics.forEach(topic => {
+          const opt = document.createElement('option');
+          opt.value       = topic.filename;
+          opt.textContent = topic.label;
+          el.topicSelect.appendChild(opt);
+        });
+
+        // Re-enable controls now that options exist
+        el.topicSelect.disabled = false;
+        el.loadBtn.disabled     = false;
+        el.randomBtn.disabled   = false;
+      })
+      .catch(err => {
+        console.error('Failed to load topic manifest:', err);
+        el.topicSelect.innerHTML = '<option value="">Failed to load topics</option>';
+      });
+  }
+
+  loadManifest();
+
   // ─── Load Topic ─────────────────────────────────────────────────
   el.loadBtn.addEventListener('click', loadTopic);
 
   function loadTopic() {
-    const topic = el.topicSelect.value;
-    const jsonURL = `https://weaponxd253.github.io/JeopardyApi/${topicToFilename(topic)}.json`;
+    const filename = el.topicSelect.value;
+    if (!filename) return;
+
+    const jsonURL = `${BASE_URL}${filename}.json`;
 
     showLoading(true);
 
@@ -62,14 +105,6 @@ document.addEventListener('DOMContentLoaded', () => {
         el.emptyState.querySelector('p').innerHTML =
           '<strong>Failed to load — check your connection and try again.</strong>';
       });
-  }
-
-
-  function topicToFilename(topic) {
-    const overrides = {
-      gaming: 'gamingConsoles',
-    };
-    return overrides[topic] ?? topic;
   }
 
   function showLoading(isLoading) {
@@ -111,22 +146,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const { categories, questions } = gameState;
     el.board.innerHTML = '';
 
-    // Dynamically set grid columns from actual category count
     const colCount = categories.length;
     el.board.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
 
-    // Derive the dollar values from the first category's question keys
     const firstCatId = categories[0]?.id;
     const values = firstCatId
       ? Object.keys(questions[firstCatId] ?? {})
           .map(Number)
           .sort((a, b) => a - b)
-      : [100, 200, 300, 400, 500]; // fallback
+      : [100, 200, 300, 400, 500];
 
     // Row 1: Category headers
     categories.forEach(cat => {
       const div = document.createElement('div');
-      div.className = 'cat-header';
+      div.className   = 'cat-header';
       div.textContent = cat.name;
       el.board.appendChild(div);
     });
@@ -135,10 +168,10 @@ document.addEventListener('DOMContentLoaded', () => {
     values.forEach((value, rowIndex) => {
       categories.forEach(cat => {
         const cell = document.createElement('div');
-        cell.className = 'question-cell';
+        cell.className        = 'question-cell';
         cell.dataset.category = cat.id;
-        cell.dataset.value = value;
-        cell.dataset.catName = cat.name;
+        cell.dataset.value    = value;
+        cell.dataset.catName  = cat.name;
 
         const cellKey = `${cat.id}-${value}`;
         if (gameState.answeredCells.has(cellKey)) {
@@ -147,7 +180,6 @@ document.addEventListener('DOMContentLoaded', () => {
           cell.textContent = `$${value.toLocaleString()}`;
         }
 
-        // Stagger reveal animation
         cell.style.animationDelay = `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
         cell.addEventListener('click', handleCellClick);
         el.board.appendChild(cell);
@@ -160,9 +192,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const cell = event.currentTarget;
     if (cell.classList.contains('answered')) return;
 
-    const category = cell.dataset.category;
-    const value    = parseInt(cell.dataset.value);
-    const catName  = cell.dataset.catName;
+    const category    = cell.dataset.category;
+    const value       = parseInt(cell.dataset.value);
+    const catName     = cell.dataset.catName;
     const questionData = gameState.questions[category]?.[value];
 
     if (!questionData) {
@@ -180,13 +212,13 @@ document.addEventListener('DOMContentLoaded', () => {
     el.modalCategory.textContent = catName.toUpperCase();
     el.modalValue.textContent    = `$${value.toLocaleString()}`;
     el.questionText.textContent  = questionText;
-    el.answer.value              = '';           // Clear previous answer
+    el.answer.value              = '';
     el.resultArea.classList.add('hidden');
     el.resultArea.className      = 'result-area hidden';
     el.resultArea.innerHTML      = '';
     el.submitBtn.disabled        = false;
     el.answer.disabled           = false;
-    el.closeBtn.classList.add('hidden');         // Hide close during active question
+    el.closeBtn.classList.add('hidden');
 
     el.modal.classList.add('open');
     requestAnimationFrame(() => el.answer.focus());
@@ -200,10 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
     gameState.activeQuestion = null;
   }
 
-  // Close button (only visible after answer revealed)
   el.closeBtn.addEventListener('click', closeModal);
 
-  // Clicking the backdrop also closes (after answer phase)
   document.querySelector('.modal-backdrop').addEventListener('click', () => {
     if (!el.closeBtn.classList.contains('hidden')) {
       closeModal();
@@ -213,11 +243,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ─── Timer ──────────────────────────────────────────────────────
   function startTimer(seconds) {
     let timeLeft = seconds;
-    el.timeLeft.textContent = timeLeft;
+    el.timeLeft.textContent     = timeLeft;
     el.timerBar.style.transform = 'scaleX(1)';
     el.timerBar.style.transition = 'none';
 
-    // Trigger reflow so the transition reset takes effect
     void el.timerBar.offsetWidth;
     el.timerBar.style.transition = `transform ${seconds}s linear`;
     el.timerBar.style.transform  = 'scaleX(0)';
@@ -261,7 +290,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // ─── Submit Answer ──────────────────────────────────────────────
   el.submitBtn.addEventListener('click', submitAnswer);
 
-  // Enter key submits
   el.answer.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !el.submitBtn.disabled) submitAnswer();
   });
@@ -314,15 +342,14 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     el.resultArea.classList.remove('hidden');
 
-    // Animate the closing progress bar
     const fill = document.getElementById('closing-fill');
     if (fill) {
-      fill.style.transform        = 'scaleX(1)';
-      fill.style.transition       = 'none';
+      fill.style.transform       = 'scaleX(1)';
+      fill.style.transition      = 'none';
       void fill.offsetWidth;
-      fill.style.transition       = 'transform 5s linear';
-      fill.style.transformOrigin  = 'left';
-      fill.style.transform        = 'scaleX(0)';
+      fill.style.transition      = 'transform 5s linear';
+      fill.style.transformOrigin = 'left';
+      fill.style.transform       = 'scaleX(0)';
     }
   }
 
@@ -335,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── Auto-close modal after result ─────────────────────────────
   function scheduleClose(seconds) {
-    el.closeBtn.classList.remove('hidden'); // Allow manual close during countdown
+    el.closeBtn.classList.remove('hidden');
     let left = seconds;
 
     const interval = setInterval(() => {
