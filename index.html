@@ -31,19 +31,12 @@
     <div class="topic-bar">
       <label for="topic" class="topic-label">Topic</label>
       <div class="topic-controls">
-        <select id="topic">
-          <option value="programming">Programming</option>
-          <option value="animals">Animals</option>
-          <option value="biology">Biology</option>
-          <option value="user_design">User Design</option>
-          <option value="basic_it">Basic IT</option>
-          <option value="sql_developer">SQL Developer</option>
-          <option value="sports">Sports</option>
-          <option value="gaming">Game Consoles</option>
-          <option value="lpn">Licensed Practical Nurse</option>
+        <!-- Options are injected dynamically from topics.json -->
+        <select id="topic" disabled>
+          <option value="">Loading topics…</option>
         </select>
-        <button id="random-button" class="btn btn-ghost" title="Random topic">⚄ Random</button>
-        <button id="load-button" class="btn btn-primary">▶ Play</button>
+        <button id="random-button" class="btn btn-ghost" title="Random topic" disabled>⚄ Random</button>
+        <button id="load-button" class="btn btn-primary" disabled>▶ Play</button>
       </div>
     </div>
 
