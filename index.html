@@ -7,8 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
@@ -28,43 +27,58 @@
   </header>
 
   <main>
-    <div class="topic-bar">
-      <label for="topic" class="topic-label">Topic</label>
-      <div class="topic-controls">
-        <!-- Options are injected dynamically from topics.json -->
-        <select id="topic" disabled>
-          <option value="">Loading topics…</option>
-        </select>
-        <button id="random-button" class="btn btn-ghost" title="Random topic" disabled>⚄ Random</button>
-        <button id="load-button" class="btn btn-primary" disabled>▶ Play</button>
+
+    <!-- ── Topic Browser (shown until a board loads) ── -->
+    <div id="topic-browser" class="topic-browser">
+      <div class="browser-header">
+        <input
+          type="text"
+          id="topic-search"
+          class="topic-search"
+          placeholder="🔍  Search topics…"
+          autocomplete="off"
+        />
+        <span id="topic-count" class="topic-count"></span>
+      </div>
+      <div id="category-filters" class="category-filters"></div>
+      <div id="topic-grid" class="topic-grid"></div>
+      <div class="browser-footer">
+        <span id="selected-label" class="selected-label"></span>
+        <button id="random-button" class="btn btn-ghost">⚄ Random</button>
+        <button id="play-button" class="btn btn-primary" disabled>▶ Play</button>
       </div>
     </div>
 
-    <!-- Loading state -->
+    <!-- ── Now Playing Bar (replaces browser when board is active) ── -->
+    <div id="now-playing" class="now-playing hidden">
+      <div class="now-playing-inner">
+        <span class="now-playing-pip"></span>
+        <span class="now-playing-label">NOW PLAYING</span>
+        <span id="now-playing-topic" class="now-playing-topic"></span>
+        <div class="now-playing-spacer"></div>
+        <button id="change-topic" class="btn btn-ghost btn-sm">⇄ Change Topic</button>
+      </div>
+    </div>
+
+    <!-- ── Loading ── -->
     <div id="loading-state" class="loading-state hidden">
       <div class="spinner"></div>
       <p>Loading board…</p>
     </div>
 
-    <!-- Empty state -->
-    <div id="empty-state" class="empty-state">
-      <div class="empty-icon">🎯</div>
-      <p>Select a topic and press <strong>Play</strong> to start</p>
-    </div>
-
-    <!-- Game board -->
+    <!-- ── Game Board ── -->
     <div id="board" class="jeopardy-board hidden"></div>
+
   </main>
 
   <!-- Question Modal -->
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="question-text">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <button class="close-btn" id="close-btn" aria-label="Close">&times;</button>
+      <button class="close-btn hidden" id="close-btn" aria-label="Close">&times;</button>
 
       <div class="modal-category-label" id="modal-category-label"></div>
-      <div class="modal-value-label" id="modal-value-label"></div>
-
+      <div class="modal-value-label"    id="modal-value-label"></div>
       <div id="question-text" class="question-text"></div>
 
       <div id="timer-bar-container" class="timer-bar-container">
