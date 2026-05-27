@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-
+ 
   // ─── Config ─────────────────────────────────────────────────────
   const BASE_URL      = 'https://weaponxd253.github.io/JeopardyApi/';
   const MANIFEST_URL  = `${BASE_URL}topics.json`;
