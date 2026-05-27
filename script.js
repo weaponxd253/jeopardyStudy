@@ -1,734 +1,559 @@
-const TEAM_COLORS = [
-  '#ff3b3b', '#4da6ff', '#ffd700', '#4dff91',
-  '#ff7c4d', '#c97bff', '#ff9ec8', '#00e5d4'
-];
+document.addEventListener('DOMContentLoaded', () => {
 
-const TYPE_COLORS = {
-  normal:   '#A8A8A8', fire:     '#F08030', water:    '#6890F0',
-  grass:    '#78C850', electric: '#F8D030', ice:      '#98D8D8',
-  fighting: '#C03028', poison:   '#A040A0', ground:   '#E0C068',
-  flying:   '#A890F0', psychic:  '#F85888', bug:      '#A8B820',
-  rock:     '#B8A038', ghost:    '#705898', dragon:   '#7038F8',
-  dark:     '#705848', steel:    '#B8B8D0', fairy:    '#EE99AC'
-};
+  // ─── Config ─────────────────────────────────────────────────────
+  const BASE_URL      = 'https://weaponxd253.github.io/JeopardyApi/';
+  const MANIFEST_URL  = `${BASE_URL}topics.json`;
+  const BASE_URL     = 'https://weaponxd253.github.io/JeopardyApi/';
+  const MANIFEST_URL = `${BASE_URL}topics.json`;
 
-const DEFAULT_NAMES = [
-  'Red Bulls', 'Blue Jays', 'Gold Rush', 'Green Wave',
-  'Blaze Squad', 'Purple Haze', 'Pink Tide', 'Teal Force'
-];
+  // ─── State ─────────────────────────────────────────────────────
+  const gameState = {
+  const state = {
+    // Game
+    score: 0,
+    questions: {},
+    categories: [],
+    timerInterval: null,
+    activeQuestion: null,   // { category, value, element }
+    activeQuestion: null,
+    answeredCells: new Set(),
+    // Browser
+    allTopics: [],
+    selectedTopic: null,
+    activeFilter: 'All',
+    searchQuery: '',
+  };
 
-const GENS = [
-  { num: 1, label: 'Gen 1 — Kanto',  short: 'G1', start: 1,   end: 151, color: '#ff6b6b' },
-  { num: 2, label: 'Gen 2 — Johto',  short: 'G2', start: 152, end: 251, color: '#ffd93d' },
-  { num: 3, label: 'Gen 3 — Hoenn',  short: 'G3', start: 252, end: 386, color: '#6bcb77' },
-  { num: 4, label: 'Gen 4 — Sinnoh', short: 'G4', start: 387, end: 493, color: '#4d96ff' },
-];
+  // ─── DOM Refs ───────────────────────────────────────────────────
+  const el = {
+    board:            document.getElementById('board'),
+    score:            document.getElementById('score'),
+    loadBtn:          document.getElementById('load-button'),
+    resetBtn:         document.getElementById('reset-button'),
+    // Game
+    board:          document.getElementById('board'),
+    score:          document.getElementById('score'),
+    resetBtn:       document.getElementById('reset-button'),
+    loadingState:   document.getElementById('loading-state'),
+    modal:          document.getElementById('modal'),
+    closeBtn:       document.getElementById('close-btn'),
+    questionText:   document.getElementById('question-text'),
+    modalCategory:  document.getElementById('modal-category-label'),
+    modalValue:     document.getElementById('modal-value-label'),
+    timerBar:       document.getElementById('timer-bar'),
+    timeLeft:       document.getElementById('time-left'),
+    answer:         document.getElementById('answer'),
+    submitBtn:      document.getElementById('submit-answer'),
+    resultArea:     document.getElementById('result-area'),
+    // Topic browser
+    topicBrowser:     document.getElementById('topic-browser'),
+    topicSearch:      document.getElementById('topic-search'),
+    categoryFilters:  document.getElementById('category-filters'),
+    topicGrid:        document.getElementById('topic-grid'),
+    topicCount:       document.getElementById('topic-count'),
+    playBtn:          document.getElementById('play-button'),
+    randomBtn:        document.getElementById('random-button'),
+    topicSelect:      document.getElementById('topic'),
+    modal:            document.getElementById('modal'),
+    modalContent:     document.querySelector('.modal-content'),
+    closeBtn:         document.getElementById('close-btn'),
+    questionText:     document.getElementById('question-text'),
+    modalCategory:    document.getElementById('modal-category-label'),
+    modalValue:       document.getElementById('modal-value-label'),
+    timerBar:         document.getElementById('timer-bar'),
+    timeLeft:         document.getElementById('time-left'),
+    answer:           document.getElementById('answer'),
+    submitBtn:        document.getElementById('submit-answer'),
+    resultArea:       document.getElementById('result-area'),
+    loadingState:     document.getElementById('loading-state'),
+    emptyState:       document.getElementById('empty-state'),
+    selectedLabel:    document.getElementById('selected-label'),
+    // Now playing
+    nowPlaying:       document.getElementById('now-playing'),
+    nowPlayingTopic:  document.getElementById('now-playing-topic'),
+    changeTopicBtn:   document.getElementById('change-topic'),
+  };
 
-// ── State ──
-let allPokemon = [];
-let teams = [];
-let numTeams = 4, numRounds = 4;
-let currentRound = 0, currentPickInRound = 0;
-let draftedIds = new Set();
-let snakeOrder = [];
-let draftOrderIndices = [];  // team indices in pick order for current draft
-let currentGenIdx = 0;
-let draftNumber = 1;
-let curSort = 'bst-desc', curSearch = '', curType = '';
-let cpuThinking = false;
+  // ─── Load Topic Manifest ────────────────────────────────────────
+  // Fetches topics.json and populates the <select> dynamically.
+  // To add a new topic: add a JSON file to your repo and add one
+  // entry to topics.json — no HTML changes needed.
+  // ─── Boot: Load Manifest ────────────────────────────────────────
+  // topics.json drives everything. Adding a new topic = one JSON entry.
+  loadManifest();
 
-// ── Helpers ──
-function getGen(id) {
-  return GENS.find(g => id >= g.start && id <= g.end) ?? GENS[0];
-}
+  function loadManifest() {
+    fetch(MANIFEST_URL)
+      .then(res => {
+        if (!res.ok) throw new Error(`Manifest HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .then(topics => {
+        if (!Array.isArray(topics) || topics.length === 0) {
+          throw new Error('topics.json is empty or malformed');
+        }
 
-function shuffleArray(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+        // Clear the placeholder and populate options
+        el.topicSelect.innerHTML = '';
+        topics.forEach(topic => {
+          const opt = document.createElement('option');
+          opt.value       = topic.filename;
+          opt.textContent = topic.label;
+          el.topicSelect.appendChild(opt);
+        });
+
+        // Re-enable controls now that options exist
+        el.topicSelect.disabled = false;
+        el.loadBtn.disabled     = false;
+        el.randomBtn.disabled   = false;
+        state.allTopics = topics;
+        buildCategoryFilters(topics);
+        renderTopicGrid();
+      })
+      .catch(err => {
+        console.error('Failed to load topic manifest:', err);
+        el.topicSelect.innerHTML = '<option value="">Failed to load topics</option>';
+        console.error('Manifest load failed:', err);
+        el.topicGrid.innerHTML =
+          '<p class="browser-error">⚠ Could not load topics — check your connection and try again.</p>';
+      });
   }
-  return a;
-}
 
-function teamTotalBst(team) {
-  return team.picks.reduce((s, p) => s + (p?.bst ?? 0), 0);
-}
-
-// ── Setup ──
-function updateTeamCount(val) {
-  numTeams = parseInt(val);
-  document.getElementById('numTeamsVal').textContent = val;
-  renderNameInputs();
-}
-
-function updateRounds(val) {
-  numRounds = parseInt(val);
-  document.getElementById('numRoundsVal').textContent = val;
-}
-
-function renderNameInputs() {
-  const grid = document.getElementById('teamNamesGrid');
-  const existing = [...grid.querySelectorAll('.team-name-field')].map(i => i.value);
-  const existingCpu = [...grid.querySelectorAll('.cpu-toggle')].map(b => b.dataset.cpu === 'true');
-  grid.innerHTML = '';
-  for (let i = 0; i < numTeams; i++) {
-    const row = document.createElement('div');
-    row.className = 'team-name-row';
-
-    const dot = document.createElement('div');
-    dot.className = 'team-dot';
-    dot.style.background = TEAM_COLORS[i];
-
-    const inp = document.createElement('input');
-    inp.type = 'text';
-    inp.className = 'team-name-field';
-    inp.value = existing[i] !== undefined ? existing[i] : DEFAULT_NAMES[i];
-    inp.placeholder = `Team ${i + 1}`;
-
-    const cpuBtn = document.createElement('button');
-    cpuBtn.type = 'button';
-    cpuBtn.className = 'cpu-toggle';
-    cpuBtn.textContent = 'CPU';
-    const isCpu = existingCpu[i] ?? false;
-    cpuBtn.dataset.cpu = String(isCpu);
-    if (isCpu) cpuBtn.classList.add('active');
-    cpuBtn.addEventListener('click', () => {
-      const nowCpu = cpuBtn.dataset.cpu !== 'true';
-      cpuBtn.dataset.cpu = String(nowCpu);
-      cpuBtn.classList.toggle('active', nowCpu);
+  loadManifest();
+  // ─── Category Filter Chips ──────────────────────────────────────
+  function buildCategoryFilters(topics) {
+    // Derive unique categories in the order they first appear
+    const seen = new Set();
+    const cats = ['All'];
+    topics.forEach(t => {
+      if (t.category && !seen.has(t.category)) {
+        seen.add(t.category);
+        cats.push(t.category);
+      }
     });
 
-    row.appendChild(dot);
-    row.appendChild(inp);
-    row.appendChild(cpuBtn);
-    grid.appendChild(row);
-  }
-}
-
-async function startDraft() {
-  currentGenIdx = parseInt(document.getElementById('genSelect').value);
-  draftNumber = 1;
-  currentRound = 0;
-  currentPickInRound = 0;
-  draftedIds = new Set();
-  numTeams = parseInt(document.getElementById('numTeamsRange').value);
-  numRounds = parseInt(document.getElementById('numRoundsRange').value);
-
-  const nameFields = document.querySelectorAll('.team-name-field');
-  const cpuToggles = document.querySelectorAll('.cpu-toggle');
-  teams = Array.from({ length: numTeams }, (_, i) => ({
-    name: nameFields[i]?.value.trim() || `Team ${i + 1}`,
-    color: TEAM_COLORS[i],
-    isCpu: cpuToggles[i]?.dataset.cpu === 'true',
-    picks: []
-  }));
-
-  // Randomise first draft order
-  draftOrderIndices = shuffleArray(Array.from({ length: numTeams }, (_, i) => i));
-
-  document.getElementById('setupScreen').style.display = 'none';
-  await loadGen(currentGenIdx);
-
-  buildSnakeOrder();
-  populateTypeFilter();
-
-  document.getElementById('loadingScreen').style.display = 'none';
-  document.getElementById('draftScreen').style.display = 'flex';
-
-  refreshHeader();
-  refreshSnakeBar();
-  refreshGrid();
-  refreshTeams();
-  triggerCpuIfNeeded();
-}
-
-// ── Data Loading ──
-async function loadGen(genIdx) {
-  const gen = GENS[genIdx];
-  document.getElementById('loadLabel').textContent = `Loading ${gen.label}`;
-  document.getElementById('loadingScreen').style.display = 'flex';
-  document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('loadCount').textContent = '0 / 0';
-  document.getElementById('loadName').textContent = '';
-
-  await loadPokemonData(gen.start, gen.end);
-}
-
-async function loadPokemonData(start, end) {
-  allPokemon = [];
-  const count = end - start + 1;
-
-  // Try to serve entirely from IndexedDB
-  const cached = await getCachedRange(start, end);
-  if (cached.length === count) {
-    allPokemon = cached;
-    return;
+  // ─── Load Topic ─────────────────────────────────────────────────
+  el.loadBtn.addEventListener('click', loadTopic);
+    el.categoryFilters.innerHTML = '';
+    cats.forEach(cat => {
+      const chip = document.createElement('button');
+      chip.className   = 'filter-chip' + (cat === state.activeFilter ? ' active' : '');
+      chip.textContent = cat;
+      chip.addEventListener('click', () => {
+        state.activeFilter = cat;
+        el.categoryFilters.querySelectorAll('.filter-chip')
+          .forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        renderTopicGrid();
+      });
+      el.categoryFilters.appendChild(chip);
+    });
   }
 
-  // Partial or no cache — fetch missing with progress
-  const cachedMap = new Map(cached.map(p => [p.id, p]));
-  const allIds = Array.from({ length: count }, (_, i) => start + i);
-  let loaded = 0;
-  document.getElementById('loadCount').textContent = `0 / ${count}`;
-  const BATCH = 60;
+  // ─── Topic Grid ─────────────────────────────────────────────────
+  // Adding a new topic never requires touching JS or HTML —
+  // just add an entry to topics.json and it appears here automatically.
+  function renderTopicGrid() {
+    const { allTopics, activeFilter, searchQuery, selectedTopic } = state;
 
-  for (let i = 0; i < allIds.length; i += BATCH) {
-    const batchIds = allIds.slice(i, i + BATCH);
-    const results = await Promise.all(batchIds.map(async (id) => {
-      if (cachedMap.has(id)) { loaded++; return cachedMap.get(id); }
+    let filtered = allTopics;
+    if (activeFilter !== 'All') {
+      filtered = filtered.filter(t => t.category === activeFilter);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(t => t.label.toLowerCase().includes(q));
+    }
 
-      const data = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`).then(r => r.json());
-      const parsed = parsePokemon(data);
-      await putCachedPokemon(parsed);
+    // Update count label
+    el.topicCount.textContent = filtered.length === allTopics.length
+      ? `${allTopics.length} topics`
+      : `${filtered.length} of ${allTopics.length} topics`;
 
-      loaded++;
-      const pct = Math.round((loaded / count) * 100);
-      document.getElementById('progressFill').style.width = `${pct}%`;
-      document.getElementById('loadCount').textContent = `${loaded} / ${count}`;
-      document.getElementById('loadName').textContent = parsed.name;
-      return parsed;
-    }));
-    allPokemon.push(...results);
+    el.topicGrid.innerHTML = '';
+
+    if (filtered.length === 0) {
+      el.topicGrid.innerHTML = '<p class="browser-empty">No topics match your search.</p>';
+      return;
+    }
+
+  function loadTopic() {
+    const filename = el.topicSelect.value;
+    if (!filename) return;
+    filtered.forEach(topic => {
+      const card = document.createElement('div');
+      const isSelected = selectedTopic?.filename === topic.filename;
+      card.className = 'topic-card' + (isSelected ? ' selected' : '');
+      card.innerHTML = `
+        <span class="topic-card-icon">${topic.icon ?? '📚'}</span>
+        <span class="topic-card-name">${topic.label}</span>
+        <span class="topic-card-cat">${topic.category ?? ''}</span>
+      `;
+      card.addEventListener('click', () => selectTopic(topic));
+      el.topicGrid.appendChild(card);
+    });
   }
-}
 
-function parsePokemon(data) {
-  let bst = 0;
-  const stats = {};
-  for (const s of data.stats) {
-    stats[s.stat.name] = s.base_stat;
-    bst += s.base_stat;
+  function selectTopic(topic) {
+    state.selectedTopic = topic;
+    renderTopicGrid();
+    el.selectedLabel.innerHTML = `Selected: <strong>${topic.label}</strong>`;
+    el.playBtn.disabled = false;
   }
-  return {
-    id: data.id,
-    name: data.name,
-    sprite: data.sprites.front_default ||
-      `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${data.id}.png`,
-    types: data.types.map(t => t.type.name),
-    stats, bst
-  };
-}
 
-// ── Snake Logic ──
-function buildSnakeOrder() {
-  snakeOrder = [];
-  const order = draftOrderIndices.length
-    ? draftOrderIndices
-    : Array.from({ length: numTeams }, (_, i) => i);
-  for (let r = 0; r < numRounds; r++) {
-    for (let p = 0; p < numTeams; p++) {
-      snakeOrder.push(r % 2 === 0 ? order[p] : order[numTeams - 1 - p]);
+  // ─── Play & Random ──────────────────────────────────────────────
+  el.playBtn.addEventListener('click', () => {
+    if (state.selectedTopic) loadTopic(state.selectedTopic);
+  });
+
+  el.randomBtn.addEventListener('click', () => {
+    if (!state.allTopics.length) return;
+    const pick = state.allTopics[Math.floor(Math.random() * state.allTopics.length)];
+    selectTopic(pick);
+  });
+
+    const jsonURL = `${BASE_URL}${filename}.json`;
+  // ─── Load Topic ─────────────────────────────────────────────────
+  function loadTopic(topic) {
+    const jsonURL = `${BASE_URL}${topic.filename}.json`;
+
+    showLoading(true);
+    // Hide browser, show spinner
+    el.topicBrowser.classList.add('hidden');
+    el.nowPlaying.classList.add('hidden');
+    el.board.classList.add('hidden');
+    el.loadingState.classList.remove('hidden');
+
+    fetch(jsonURL)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+      .then(data => {
+        gameState.categories = data.categories;
+        gameState.questions   = data.questions;
+        gameState.answeredCells.clear();
+        state.categories = data.categories;
+        state.questions  = data.questions;
+        state.answeredCells.clear();
+        resetScore();
+        buildBoard();
+        showLoading(false);
+
+        el.loadingState.classList.add('hidden');
+        el.board.classList.remove('hidden');
+        el.nowPlaying.classList.remove('hidden');
+        el.nowPlayingTopic.textContent = topic.label;
+      })
+      .catch(err => {
+        console.error('Failed to load topic:', err);
+        showLoading(false);
+        el.emptyState.classList.remove('hidden');
+        el.emptyState.querySelector('p').innerHTML =
+          '<strong>Failed to load — check your connection and try again.</strong>';
+        console.error('Topic load failed:', err);
+        el.loadingState.classList.add('hidden');
+        el.topicBrowser.classList.remove('hidden');
+        // Briefly flash an error in the grid
+        el.topicGrid.insertAdjacentHTML('afterbegin',
+          '<p class="browser-error">⚠ Failed to load that topic — try again.</p>');
+        setTimeout(() => renderTopicGrid(), 3000);
+      });
+  }
+
+  function showLoading(isLoading) {
+    el.loadingState.classList.toggle('hidden', !isLoading);
+    el.emptyState.classList.add('hidden');
+  // ─── Change Topic ───────────────────────────────────────────────
+  el.changeTopicBtn.addEventListener('click', () => {
+    el.nowPlaying.classList.add('hidden');
+    el.board.classList.add('hidden');
+    if (!isLoading && gameState.categories.length) {
+      el.board.classList.remove('hidden');
     }
   }
-}
-
-function currentPickNum() { return currentRound * numTeams + currentPickInRound; }
-function currentTeamIdx() { return snakeOrder[currentPickNum()]; }
-
-// ── CPU Logic ──
-function cpuScore(poke, team) {
-  const typesOwned = new Set(team.picks.flatMap(p => p.types));
-  const newTypeBonus = poke.types.some(t => !typesOwned.has(t)) ? 55 : 0;
-  const jitter = (Math.random() - 0.5) * 80;
-  return poke.bst + newTypeBonus + jitter;
-}
-
-function cpuPick() {
-  const team = teams[currentTeamIdx()];
-  const available = allPokemon.filter(p => !draftedIds.has(p.id));
-  if (!available.length) return;
-
-  const scored = available
-    .map(p => ({ poke: p, score: cpuScore(p, team) }))
-    .sort((a, b) => b.score - a.score);
-
-  const topN = Math.min(3, scored.length);
-  const choice = scored[Math.floor(Math.random() * topN)].poke;
-  setCpuThinking(false);
-  draftPokemon(choice);
-}
-
-function setCpuThinking(on) {
-  cpuThinking = on;
-  const picker = document.getElementById('dhPicker');
-  const sub = document.getElementById('dhSub');
-  if (on) {
-    picker.classList.add('thinking');
-    sub.textContent = 'CPU is thinking...';
-  } else {
-    picker.classList.remove('thinking');
-  }
-}
-
-function triggerCpuIfNeeded() {
-  if (currentRound >= numRounds) return;
-  const ti = currentTeamIdx();
-  if (!teams[ti].isCpu) return;
-  setCpuThinking(true);
-  setTimeout(cpuPick, 800 + Math.random() * 800);
-}
-
-// ── Rendering ──
-function populateTypeFilter() {
-  const types = new Set();
-  allPokemon.forEach(p => p.types.forEach(t => types.add(t)));
-  const sel = document.getElementById('typeFilter');
-  [...types].sort().forEach(t => {
-    const o = document.createElement('option');
-    o.value = t;
-    o.textContent = t[0].toUpperCase() + t.slice(1);
-    sel.appendChild(o);
+    el.topicBrowser.classList.remove('hidden');
+    state.categories = [];
+    state.answeredCells.clear();
+    resetScore();
   });
-}
 
-function refreshHeader() {
-  if (cpuThinking) return;
-  const total = numRounds * numTeams;
-  const pick = currentPickNum();
-  const team = teams[currentTeamIdx()];
-  const gen = GENS[currentGenIdx];
-  const picker = document.getElementById('dhPicker');
-  picker.textContent = team.name + (team.isCpu ? ' (CPU)' : '') + "'s Pick";
-  picker.style.color = team.color;
-  document.getElementById('dhSub').textContent =
-    `${gen.short} · Round ${currentRound + 1} · Pick ${currentPickInRound + 1} of ${numTeams}`;
-  document.getElementById('dhRight').textContent =
-    `${total - pick} pick${total - pick !== 1 ? 's' : ''} remaining`;
-}
-
-function refreshSnakeBar() {
-  const bar = document.getElementById('snakeBar');
-  bar.innerHTML = '';
-  const cur = currentPickNum();
-  snakeOrder.forEach((ti, i) => {
-    if (i > 0 && i % numTeams === 0) {
-      const sep = document.createElement('div');
-      sep.className = 's-sep';
-      sep.textContent = '|';
-      bar.appendChild(sep);
-    }
-    const pip = document.createElement('div');
-    pip.className = 's-pip ' + (i < cur ? 'done' : i === cur ? 'current' : 'upcoming');
-    pip.style.background = teams[ti].color;
-    pip.title = teams[ti].name + (teams[ti].isCpu ? ' (CPU)' : '');
-    pip.textContent = ti + 1;
-    bar.appendChild(pip);
-  });
-  bar.querySelector('.current')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-}
-
-function isLight(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 128;
-}
-
-function typePills(types) {
-  return types.map(t => {
-    const bg = TYPE_COLORS[t] || '#888';
-    const fg = isLight(bg) ? '#000' : '#fff';
-    return `<span class="type-pill" style="background:${bg};color:${fg}">${t}</span>`;
-  }).join('');
-}
-
-function getDisplayList() {
-  let list = [...allPokemon];
-  if (curSearch) {
-    const q = curSearch.toLowerCase();
-    list = list.filter(p => p.name.includes(q) || String(p.id).includes(q));
-  }
-  if (curType) list = list.filter(p => p.types.includes(curType));
-  if (curSort === 'bst-desc')     list.sort((a, b) => b.bst - a.bst);
-  else if (curSort === 'bst-asc') list.sort((a, b) => a.bst - b.bst);
-  else if (curSort === 'name')    list.sort((a, b) => a.name.localeCompare(b.name));
-  else                            list.sort((a, b) => a.id - b.id);
-  return list;
-}
-
-function refreshGrid() {
-  const grid = document.getElementById('pokeGrid');
-  grid.innerHTML = '';
-  getDisplayList().forEach(poke => {
-    const card = document.createElement('div');
-    card.className = 'poke-card' + (draftedIds.has(poke.id) ? ' drafted' : '');
-    card.dataset.id = poke.id;
-    card.innerHTML = `
-      <img src="${poke.sprite}" alt="${poke.name}" onerror="this.style.visibility='hidden'">
-      <div class="pc-num">#${String(poke.id).padStart(3, '0')}</div>
-      <div class="pc-name">${poke.name}</div>
-      <div class="pc-types">${typePills(poke.types)}</div>
-      <div class="pc-bst-lbl">BASE STAT TOTAL</div>
-      <div class="pc-bst">${poke.bst}</div>
-    `;
-    if (!draftedIds.has(poke.id)) {
-      card.addEventListener('click', () => {
-        if (cpuThinking) return;
-        draftPokemon(poke);
+  // ─── Random Category ────────────────────────────────────────────
+  el.randomBtn.addEventListener('click', () => {
+    const options = el.topicSelect.options;
+    el.topicSelect.selectedIndex = Math.floor(Math.random() * options.length);
+  // ─── Search ─────────────────────────────────────────────────────
+  el.topicSearch.addEventListener('input', e => {
+    state.searchQuery = e.target.value.trim();
+    // Reset to All so search covers every category
+    if (state.activeFilter !== 'All') {
+      state.activeFilter = 'All';
+      el.categoryFilters.querySelectorAll('.filter-chip').forEach((c, i) => {
+        c.classList.toggle('active', i === 0);
       });
     }
-    grid.appendChild(card);
+    renderTopicGrid();
   });
-}
 
-function refreshTeams() {
-  const list = document.getElementById('teamsList');
-  list.innerHTML = '';
-  const curIdx = currentTeamIdx();
-  teams.forEach((team, i) => {
-    const tile = document.createElement('div');
-    tile.className = 'team-tile' + (i === curIdx ? ' current' : '');
-    const isMultiGen = draftNumber > 1;
-    const picks = team.picks.length
-      ? team.picks.map(p => {
-          const gen = getGen(p.id);
-          const isCurGen = gen.num === GENS[currentGenIdx].num;
-          const genTag = isMultiGen
-            ? `<span class="mini-gen-tag" style="background:${gen.color}">${gen.short}</span>`
-            : '';
-          return `
-            <div class="mini-chip${isCurGen ? '' : ' prev-gen'}">
-              <img src="${p.sprite}" alt="${p.name}">
-              ${genTag}
-              <span>${p.name}</span>
-            </div>`;
-        }).join('')
-      : '<span class="tt-empty">No picks yet</span>';
-    const cpuBadge = team.isCpu ? '<span class="tt-cpu-badge">CPU</span>' : '';
-    tile.innerHTML = `
-      <div class="tt-head">
-        <div class="tt-dot" style="background:${team.color}"></div>
-        <div class="tt-name">${team.name}</div>
-        ${cpuBadge}
-        <div class="tt-count">${team.picks.length}/${numRounds * draftNumber}</div>
-      </div>
-      <div class="tt-picks">${picks}</div>
-    `;
-    list.appendChild(tile);
+  // ─── Reset ──────────────────────────────────────────────────────
+  el.resetBtn.addEventListener('click', () => {
+    if (!gameState.categories.length) return;
+    gameState.answeredCells.clear();
+    if (!state.categories.length) return;
+    state.answeredCells.clear();
+    resetScore();
+    buildBoard();
   });
-}
 
-// ── Drafting ──
-function draftPokemon(poke) {
-  const ti = currentTeamIdx();
-  teams[ti].picks.push(poke);
-  draftedIds.add(poke.id);
-
-  const card = document.querySelector(`.poke-card[data-id="${poke.id}"]`);
-  if (card) card.classList.add('drafted');
-
-  currentPickInRound++;
-  if (currentPickInRound >= numTeams) {
-    currentPickInRound = 0;
-    currentRound++;
+  function resetScore() {
+    gameState.score = 0;
+    state.score = 0;
+    updateScoreDisplay();
   }
 
-  if (currentRound >= numRounds) {
-    saveSeason(buildSeasonState());
-    const hasMoreGens = currentGenIdx < GENS.length - 1;
-    if (hasMoreGens) {
-      showLobby();
-    } else {
-      showComplete();
+  function updateScoreDisplay() {
+    const s = gameState.score;
+    const s = state.score;
+    el.score.textContent = (s < 0 ? '-$' : '$') + Math.abs(s).toLocaleString();
+    el.score.classList.toggle('negative', s < 0);
+  }
+
+  // ─── Build Board ────────────────────────────────────────────────
+  function buildBoard() {
+    const { categories, questions } = gameState;
+    const { categories, questions } = state;
+    el.board.innerHTML = '';
+
+    const colCount = categories.length;
+    el.board.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
+
+    const firstCatId = categories[0]?.id;
+    const values = firstCatId
+      ? Object.keys(questions[firstCatId] ?? {})
+          .map(Number)
+          .sort((a, b) => a - b)
+      ? Object.keys(questions[firstCatId] ?? {}).map(Number).sort((a, b) => a - b)
+      : [100, 200, 300, 400, 500];
+
+    // Row 1: Category headers
+    // Row 1: headers
+    categories.forEach(cat => {
+      const div = document.createElement('div');
+      div.className   = 'cat-header';
+      div.textContent = cat.name;
+      el.board.appendChild(div);
+    });
+
+    // Remaining rows: question cells per value
+    // Rows 2+: question cells
+    values.forEach((value, rowIndex) => {
+      categories.forEach(cat => {
+        const cell = document.createElement('div');
+@@ -174,35 +266,33 @@ document.addEventListener('DOMContentLoaded', () => {
+        cell.dataset.catName  = cat.name;
+
+        const cellKey = `${cat.id}-${value}`;
+        if (gameState.answeredCells.has(cellKey)) {
+        if (state.answeredCells.has(cellKey)) {
+          cell.classList.add('answered');
+        } else {
+          cell.textContent = `$${value.toLocaleString()}`;
+        }
+
+        cell.style.animationDelay = `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
+        cell.style.animationDelay =
+          `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
+        cell.addEventListener('click', handleCellClick);
+        el.board.appendChild(cell);
+      });
+    });
+  }
+
+  // ─── Handle Cell Click ──────────────────────────────────────────
+  // ─── Cell Click ─────────────────────────────────────────────────
+  function handleCellClick(event) {
+    const cell = event.currentTarget;
+    if (cell.classList.contains('answered')) return;
+
+    const category    = cell.dataset.category;
+    const value       = parseInt(cell.dataset.value);
+    const catName     = cell.dataset.catName;
+    const questionData = gameState.questions[category]?.[value];
+    const category     = cell.dataset.category;
+    const value        = parseInt(cell.dataset.value);
+    const catName      = cell.dataset.catName;
+    const questionData = state.questions[category]?.[value];
+
+    if (!questionData) {
+      console.warn('No question found for', category, value);
+      return;
     }
-    return;
+    if (!questionData) { console.warn('No question for', category, value); return; }
+
+    gameState.activeQuestion = { category, value, element: cell };
+    state.activeQuestion = { category, value, element: cell };
+    openModal(catName, value, questionData.question);
   }
 
-  refreshHeader();
-  refreshSnakeBar();
-  refreshTeams();
-  saveSeason(buildSeasonState());
-  triggerCpuIfNeeded();
-}
+@@ -222,110 +312,88 @@ document.addEventListener('DOMContentLoaded', () => {
 
-function buildSeasonState() {
-  return {
-    version: 2,
-    currentGenIdx,
-    draftNumber,
-    numTeams, numRounds,
-    teams: teams.map(t => ({ ...t, picks: t.picks.map(p => p.id ?? p) })),
-    draftedIds: [...draftedIds],
-    snakeOrder,
-    draftOrderIndices,
-    currentRound,
-    currentPickInRound,
-    status: 'drafting',
-  };
-}
+    el.modal.classList.add('open');
+    requestAnimationFrame(() => el.answer.focus());
 
-// ── Lobby (between gens) ──
-function showLobby() {
-  document.getElementById('draftScreen').style.display = 'none';
-  document.getElementById('lobbyScreen').style.display = 'flex';
-
-  const gen = GENS[currentGenIdx];
-  const nextGen = GENS[currentGenIdx + 1];
-
-  document.getElementById('lobbyGenComplete').textContent = `${gen.label} Complete`;
-  document.getElementById('lobbyDraftNum').textContent =
-    `Draft ${draftNumber} · Season continues`;
-
-  // Rank teams by cumulative BST descending
-  const ranked = [...teams]
-    .map((t, idx) => ({ team: t, idx, bst: teamTotalBst(t) }))
-    .sort((a, b) => b.bst - a.bst);
-
-  // Next draft order = reverse standings (worst BST picks first)
-  const nextOrder = [...ranked].reverse();
-
-  // Order pills
-  const pillsEl = document.getElementById('lobbyOrderPills');
-  pillsEl.innerHTML = nextOrder.map((entry, i) => `
-    <div class="order-pill">
-      <span class="order-num">${i + 1}</span>
-      <span class="order-dot" style="background:${entry.team.color}"></span>
-      <span class="order-name">${entry.team.name}${entry.team.isCpu ? ' (CPU)' : ''}</span>
-    </div>
-  `).join('');
-
-  // Standings cards
-  const MEDALS = ['🏆', '🥈', '🥉'];
-  document.getElementById('lobbyStandings').innerHTML = ranked.map(({ team, bst }, rank) => {
-    const picks = team.picks.map(p => {
-      const g = getGen(p.id);
-      return `
-        <div class="lobby-pick" title="${p.name} (${g.label})">
-          <img src="${p.sprite}" alt="${p.name}">
-          <span class="lobby-gen-tag" style="background:${g.color}">${g.short}</span>
-        </div>`;
-    }).join('');
-    const cpuBadge = team.isCpu ? '<span class="tt-cpu-badge">CPU</span>' : '';
-    return `
-      <div class="lobby-team-card">
-        <div class="lobby-team-head">
-          <span class="lobby-rank">${MEDALS[rank] || rank + 1}</span>
-          <span class="lobby-team-dot" style="background:${team.color}"></span>
-          <span class="lobby-team-name">${team.name} ${cpuBadge}</span>
-          <span class="lobby-bst">BST ${bst}</span>
-        </div>
-        <div class="lobby-picks-grid">${picks || '<span class="tt-empty" style="padding:8px">No picks</span>'}</div>
-      </div>`;
-  }).join('');
-
-  document.getElementById('btnContinue').textContent = `Continue to ${nextGen.label} →`;
-}
-
-async function continueToNextGen() {
-  currentGenIdx++;
-  draftNumber++;
-  currentRound = 0;
-  currentPickInRound = 0;
-  cpuThinking = false;
-
-  // Worst total BST picks first in next snake
-  draftOrderIndices = [...teams]
-    .map((t, i) => ({ i, bst: teamTotalBst(t) }))
-    .sort((a, b) => a.bst - b.bst)
-    .map(t => t.i);
-
-  document.getElementById('lobbyScreen').style.display = 'none';
-  await loadGen(currentGenIdx);
-
-  buildSnakeOrder();
-  document.getElementById('typeFilter').innerHTML = '<option value="">All Types</option>';
-  populateTypeFilter();
-
-  document.getElementById('loadingScreen').style.display = 'none';
-  document.getElementById('draftScreen').style.display = 'flex';
-
-  refreshHeader();
-  refreshSnakeBar();
-  refreshGrid();
-  refreshTeams();
-  saveSeason(buildSeasonState());
-  triggerCpuIfNeeded();
-}
-
-function endSeason() {
-  document.getElementById('lobbyScreen').style.display = 'none';
-  showComplete();
-}
-
-// ── Filters / Sort ──
-function filterSearch(val) { curSearch = val.toLowerCase(); refreshGrid(); }
-function filterType(val)   { curType = val; refreshGrid(); }
-function sortBy(val)       { curSort = val; refreshGrid(); }
-
-// ── Complete Screen (final) ──
-function showComplete() {
-  document.getElementById('draftScreen').style.display = 'none';
-  document.getElementById('lobbyScreen').style.display = 'none';
-  document.getElementById('completeScreen').style.display = 'flex';
-  clearSeason();
-
-  const ranked = [...teams].sort((a, b) => teamTotalBst(b) - teamTotalBst(a));
-  const MEDALS = ['🏆', '🥈', '🥉'];
-  const grid = document.getElementById('compGrid');
-  grid.innerHTML = '';
-
-  ranked.forEach((team, rank) => {
-    const totalBst = teamTotalBst(team);
-    const cpuLabel = team.isCpu ? ' <span style="font-size:10px;opacity:0.6">(CPU)</span>' : '';
-    const picks = team.picks.map(p => {
-      const g = getGen(p.id);
-      return `
-        <div class="comp-pick">
-          <img src="${p.sprite}" alt="${p.name}">
-          <div class="comp-pick-info">
-            <div class="comp-pick-name">${p.name}</div>
-            <div class="comp-pick-types">${typePills(p.types)}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-            <div class="comp-pick-bst-val">${p.bst}</div>
-            <span style="font-size:9px;font-weight:700;padding:2px 5px;border-radius:4px;background:${g.color};color:#000">${g.short}</span>
-          </div>
-        </div>`;
-    }).join('');
-
-    const el = document.createElement('div');
-    el.className = 'comp-team';
-    el.innerHTML = `
-      <div class="comp-team-head">
-        <div style="width:13px;height:13px;border-radius:50%;background:${team.color};flex-shrink:0"></div>
-        ${MEDALS[rank] ? MEDALS[rank] + ' ' : ''}${team.name}${cpuLabel}
-        <div class="comp-bst-total">TOTAL ${totalBst}</div>
-      </div>
-      <div class="comp-picks">${picks}</div>
-    `;
-    grid.appendChild(el);
-  });
-}
-
-// ── Restart ──
-function restart() {
-  allPokemon = []; teams = []; draftedIds.clear(); snakeOrder = [];
-  draftOrderIndices = []; currentGenIdx = 0; draftNumber = 1;
-  currentRound = 0; currentPickInRound = 0; cpuThinking = false;
-  _savedForResume = null;
-  curSort = 'bst-desc'; curSearch = ''; curType = '';
-  document.getElementById('typeFilter').innerHTML = '<option value="">All Types</option>';
-  document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('completeScreen').style.display = 'none';
-  document.getElementById('lobbyScreen').style.display = 'none';
-  document.getElementById('resumeScreen').style.display = 'none';
-  document.getElementById('setupScreen').style.display = 'flex';
-  renderNameInputs();
-}
-
-// ── Init ──
-// ── Resume Screen ──
-let _savedForResume = null;
-
-async function init() {
-  await openDB();
-
-  const saved = loadSeason();
-  if (saved) {
-    _savedForResume = saved;
-    showResumeScreen(saved);
-    return;
+    startTimer(30);
   }
 
-  updateTeamCount(4);
-  renderNameInputs();
-  document.getElementById('setupScreen').style.display = 'flex';
-}
+  function closeModal() {
+    clearTimer();
+    el.modal.classList.remove('open');
+    gameState.activeQuestion = null;
+    state.activeQuestion = null;
+  }
 
-function showResumeScreen(saved) {
-  const gen = GENS[saved.currentGenIdx ?? 0];
-  const round = saved.currentRound + 1;
-  const totalRounds = saved.numRounds;
+  el.closeBtn.addEventListener('click', closeModal);
 
-  const badge = document.getElementById('resumeGenBadge');
-  badge.textContent = gen.short;
-  badge.style.background = gen.color;
-
-  document.getElementById('resumeMetaTitle').textContent =
-    'Draft ' + (saved.draftNumber ?? 1) + ' · ' + gen.label;
-  document.getElementById('resumeMetaSub').textContent =
-    'Round ' + round + ' of ' + totalRounds + '  ·  ' + saved.numTeams + ' teams';
-
-  const teamsEl = document.getElementById('resumeTeams');
-  teamsEl.innerHTML = saved.teams.map(t => {
-    const pickCount = t.picks.length;
-    const spriteSlots = t.picks.slice(0, 8).map(id =>
-      '<img class="resume-sprite" ' +
-      'src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/' + id + '.png" ' +
-      'alt="" onerror="this.style.opacity=0">'
-    ).join('');
-    const cpuBadge = t.isCpu
-      ? '<span class="tt-cpu-badge" style="font-size:6px">CPU</span>'
-      : '';
-    return '<div class="resume-team-row">' +
-      '<div class="resume-team-dot" style="background:' + t.color + '"></div>' +
-      '<div class="resume-team-name">' + t.name + ' ' + cpuBadge + '</div>' +
-      '<div class="resume-sprites">' + spriteSlots + '</div>' +
-      '<div class="resume-pick-count">' + pickCount + ' pick' + (pickCount !== 1 ? 's' : '') + '</div>' +
-      '</div>';
-  }).join('');
-
-  document.getElementById('setupScreen').style.display = 'none';
-  document.getElementById('setupScreen').style.display = 'none';
-  document.getElementById('resumeScreen').style.display = 'flex';
-}
-
-function resumeDraft() {
-  document.getElementById('resumeScreen').style.display = 'none';
-  if (_savedForResume) restoreSeason(_savedForResume);
-}
-
-function discardAndNew() {
-  clearSeason();
-  _savedForResume = null;
-  document.getElementById('resumeScreen').style.display = 'none';
-  document.getElementById('setupScreen').style.display = 'flex';
-  updateTeamCount(4);
-}
-
-async function restoreSeason(saved) {
-  currentGenIdx = saved.currentGenIdx ?? 0;
-  draftNumber = saved.draftNumber ?? 1;
-  numTeams = saved.numTeams;
-  numRounds = saved.numRounds;
-  currentRound = saved.currentRound;
-  currentPickInRound = saved.currentPickInRound;
-  snakeOrder = saved.snakeOrder;
-  draftOrderIndices = saved.draftOrderIndices ?? [];
-  draftedIds = new Set(saved.draftedIds);
-
-  teams = await Promise.all(saved.teams.map(async (t) => ({
-    ...t,
-    picks: await Promise.all(t.picks.map(id => getCachedPokemon(id))),
-  })));
-
-  await loadGen(currentGenIdx);
-  buildSnakeOrder();
-  populateTypeFilter();
-
-  document.getElementById('setupScreen').style.display = 'none';
-  document.getElementById('loadingScreen').style.display = 'none';
-
-  // If the draft for this gen was already finished when the page closed,
-  // go to lobby (more gens remain) or the final complete screen.
-  if (currentRound >= numRounds) {
-    const hasMoreGens = currentGenIdx < GENS.length - 1;
-    if (hasMoreGens) {
-      showLobby();
-    } else {
-      showComplete();
+  document.querySelector('.modal-backdrop').addEventListener('click', () => {
+    if (!el.closeBtn.classList.contains('hidden')) {
+      closeModal();
     }
-    return;
+    if (!el.closeBtn.classList.contains('hidden')) closeModal();
+  });
+
+  // ─── Timer ──────────────────────────────────────────────────────
+  function startTimer(seconds) {
+    let timeLeft = seconds;
+    el.timeLeft.textContent     = timeLeft;
+    el.timerBar.style.transform = 'scaleX(1)';
+    el.timeLeft.textContent      = timeLeft;
+    el.timerBar.style.transform  = 'scaleX(1)';
+    el.timerBar.style.background = 'linear-gradient(90deg, var(--red), var(--gold))';
+    el.timerBar.style.transition = 'none';
+
+    void el.timerBar.offsetWidth;
+    el.timerBar.style.transition = `transform ${seconds}s linear`;
+    el.timerBar.style.transform  = 'scaleX(0)';
+
+    gameState.timerInterval = setInterval(() => {
+    state.timerInterval = setInterval(() => {
+      timeLeft -= 1;
+      el.timeLeft.textContent = timeLeft;
+
+      if (timeLeft <= 5) {
+        el.timerBar.style.background = 'var(--red)';
+      }
+
+      if (timeLeft <= 0) {
+        clearTimer();
+        handleTimeUp();
+      }
+      if (timeLeft <= 5) el.timerBar.style.background = 'var(--red)';
+      if (timeLeft <= 0) { clearTimer(); handleTimeUp(); }
+    }, 1000);
   }
 
-  document.getElementById('draftScreen').style.display = 'flex';
+  function clearTimer() {
+    clearInterval(gameState.timerInterval);
+    gameState.timerInterval = null;
+    clearInterval(state.timerInterval);
+    state.timerInterval = null;
+  }
 
-  refreshHeader();
-  refreshSnakeBar();
-  refreshGrid();
-  refreshTeams();
-  triggerCpuIfNeeded();
-}
+  function handleTimeUp() {
+    const { category, value, element } = gameState.activeQuestion ?? {};
+    const { category, value, element } = state.activeQuestion ?? {};
+    if (!category) return;
 
-init();
+    const questionData = gameState.questions[category]?.[value];
+    const answers      = questionData?.answers ?? [];
+    const explanation  = questionData?.explanation ?? '';
+
+    const q = state.questions[category]?.[value];
+    el.submitBtn.disabled = true;
+    el.answer.disabled    = true;
+
+    showResult('timeup', '⏰ Time\'s Up!', answers, explanation);
+    showResult('timeup', "⏰ Time's Up!", q?.answers ?? [], q?.explanation ?? '');
+    markAnswered(element, `${category}-${value}`);
+    scheduleClose(5);
+  }
+
+  // ─── Submit Answer ──────────────────────────────────────────────
+  // ─── Submit ─────────────────────────────────────────────────────
+  el.submitBtn.addEventListener('click', submitAnswer);
+
+  el.answer.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !el.submitBtn.disabled) submitAnswer();
+  });
+
+  function submitAnswer() {
+    clearTimer();
+
+    const { category, value, element } = gameState.activeQuestion ?? {};
+    const { category, value, element } = state.activeQuestion ?? {};
+    if (!category) return;
+    const q = state.questions[category]?.[value];
+    if (!q) return;
+
+    const questionData = gameState.questions[category]?.[value];
+    if (!questionData) return;
+
+    const userAnswer  = el.answer.value.trim().toLowerCase();
+    const accepted    = questionData.answers;
+    const explanation = questionData.explanation ?? '';
+
+    const isCorrect = accepted.some(a => userAnswer === a.toLowerCase());
+    const userAnswer = el.answer.value.trim().toLowerCase();
+    const isCorrect  = q.answers.some(a => userAnswer === a.toLowerCase());
+
+    el.submitBtn.disabled = true;
+    el.answer.disabled    = true;
+
+    if (isCorrect) {
+      gameState.score += value;
+      showResult('correct', '✓ Correct!', accepted, explanation);
+      state.score += value;
+      showResult('correct', '✓ Correct!', q.answers, q.explanation ?? '');
+    } else {
+      gameState.score -= value;
+      showResult('incorrect', '✗ Incorrect', accepted, explanation);
+      state.score -= value;
+      showResult('incorrect', '✗ Incorrect', q.answers, q.explanation ?? '');
+    }
+
+    updateScoreDisplay();
+    markAnswered(element, `${category}-${value}`);
+    scheduleClose(5);
+  }
+
+  // ─── Result Display ─────────────────────────────────────────────
+  // ─── Result ─────────────────────────────────────────────────────
+  function showResult(type, headline, answers, explanation) {
+    el.resultArea.className = `result-area ${type}`;
+    el.resultArea.innerHTML = `
+@@ -355,23 +423,18 @@ document.addEventListener('DOMContentLoaded', () => {
+
+  function markAnswered(element, key) {
+    if (!element) return;
+    gameState.answeredCells.add(key);
+    state.answeredCells.add(key);
+    element.classList.add('answered');
+    element.textContent = '';
+  }
+
+  // ─── Auto-close modal after result ─────────────────────────────
+  function scheduleClose(seconds) {
+    el.closeBtn.classList.remove('hidden');
+    let left = seconds;
+
+    const interval = setInterval(() => {
+      left -= 1;
+      el.timeLeft.textContent = left;
+      if (left <= 0) {
+        clearInterval(interval);
+        closeModal();
+      }
+      if (left <= 0) { clearInterval(interval); closeModal(); }
+    }, 1000);
+  }
