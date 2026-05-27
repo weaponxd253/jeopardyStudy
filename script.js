@@ -1,21 +1,18 @@
 document.addEventListener('DOMContentLoaded', () => {
- 
   // ─── Config ─────────────────────────────────────────────────────
-  const BASE_URL     = 'https://weaponxd253.github.io/JeopardyApi/';
+  const BASE_URL = 'https://weaponxd253.github.io/JeopardyApi/';
   const MANIFEST_URL = `${BASE_URL}topics.json`;
 
-  // ─── State ─────────────────────────────────────────────────────
-  const gameState = {
+  // ─── State ──────────────────────────────────────────────────────
   const state = {
-    // Game
     score: 0,
     questions: {},
     categories: [],
     timerInterval: null,
-    activeQuestion: null,   // { category, value, element }
+    closeInterval: null,
     activeQuestion: null,
     answeredCells: new Set(),
-    // Browser
+
     allTopics: [],
     selectedTopic: null,
     activeFilter: 'All',
@@ -24,378 +21,372 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── DOM Refs ───────────────────────────────────────────────────
   const el = {
-    board:            document.getElementById('board'),
-    score:            document.getElementById('score'),
-    loadBtn:          document.getElementById('load-button'),
-    resetBtn:         document.getElementById('reset-button'),
     // Game
-    board:          document.getElementById('board'),
-    score:          document.getElementById('score'),
-    resetBtn:       document.getElementById('reset-button'),
-    loadingState:   document.getElementById('loading-state'),
-    modal:          document.getElementById('modal'),
-    closeBtn:       document.getElementById('close-btn'),
-    questionText:   document.getElementById('question-text'),
-    modalCategory:  document.getElementById('modal-category-label'),
-    modalValue:     document.getElementById('modal-value-label'),
-    timerBar:       document.getElementById('timer-bar'),
-    timeLeft:       document.getElementById('time-left'),
-    answer:         document.getElementById('answer'),
-    submitBtn:      document.getElementById('submit-answer'),
-    resultArea:     document.getElementById('result-area'),
+    board: document.getElementById('board'),
+    score: document.getElementById('score'),
+    resetBtn: document.getElementById('reset-button'),
+    loadingState: document.getElementById('loading-state'),
+
+    // Modal
+    modal: document.getElementById('modal'),
+    modalBackdrop: document.querySelector('.modal-backdrop'),
+    closeBtn: document.getElementById('close-btn'),
+    questionText: document.getElementById('question-text'),
+    modalCategory: document.getElementById('modal-category-label'),
+    modalValue: document.getElementById('modal-value-label'),
+    timerBar: document.getElementById('timer-bar'),
+    timeLeft: document.getElementById('time-left'),
+    answer: document.getElementById('answer'),
+    submitBtn: document.getElementById('submit-answer'),
+    resultArea: document.getElementById('result-area'),
+
     // Topic browser
-    topicBrowser:     document.getElementById('topic-browser'),
-    topicSearch:      document.getElementById('topic-search'),
-    categoryFilters:  document.getElementById('category-filters'),
-    topicGrid:        document.getElementById('topic-grid'),
-    topicCount:       document.getElementById('topic-count'),
-    playBtn:          document.getElementById('play-button'),
-    randomBtn:        document.getElementById('random-button'),
-    topicSelect:      document.getElementById('topic'),
-    modal:            document.getElementById('modal'),
-    modalContent:     document.querySelector('.modal-content'),
-    closeBtn:         document.getElementById('close-btn'),
-    questionText:     document.getElementById('question-text'),
-    modalCategory:    document.getElementById('modal-category-label'),
-    modalValue:       document.getElementById('modal-value-label'),
-    timerBar:         document.getElementById('timer-bar'),
-    timeLeft:         document.getElementById('time-left'),
-    answer:           document.getElementById('answer'),
-    submitBtn:        document.getElementById('submit-answer'),
-    resultArea:       document.getElementById('result-area'),
-    loadingState:     document.getElementById('loading-state'),
-    emptyState:       document.getElementById('empty-state'),
-    selectedLabel:    document.getElementById('selected-label'),
+    topicBrowser: document.getElementById('topic-browser'),
+    topicSearch: document.getElementById('topic-search'),
+    categoryFilters: document.getElementById('category-filters'),
+    topicGrid: document.getElementById('topic-grid'),
+    topicCount: document.getElementById('topic-count'),
+    selectedLabel: document.getElementById('selected-label'),
+    randomBtn: document.getElementById('random-button'),
+    playBtn: document.getElementById('play-button'),
+
     // Now playing
-    nowPlaying:       document.getElementById('now-playing'),
-    nowPlayingTopic:  document.getElementById('now-playing-topic'),
-    changeTopicBtn:   document.getElementById('change-topic'),
+    nowPlaying: document.getElementById('now-playing'),
+    nowPlayingTopic: document.getElementById('now-playing-topic'),
+    changeTopicBtn: document.getElementById('change-topic'),
   };
 
-  // ─── Load Topic Manifest ────────────────────────────────────────
-  // Fetches topics.json and populates the <select> dynamically.
-  // To add a new topic: add a JSON file to your repo and add one
-  // entry to topics.json — no HTML changes needed.
-  // ─── Boot: Load Manifest ────────────────────────────────────────
-  // topics.json drives everything. Adding a new topic = one JSON entry.
+  // ─── Boot ───────────────────────────────────────────────────────
   loadManifest();
 
-  function loadManifest() {
-    fetch(MANIFEST_URL)
-      .then(res => {
-        if (!res.ok) throw new Error(`Manifest HTTP ${res.status}`);
-        return res.json();
-      })
-      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-      .then(topics => {
-        if (!Array.isArray(topics) || topics.length === 0) {
-          throw new Error('topics.json is empty or malformed');
-        }
+  // ─── Manifest / Topic Browser ───────────────────────────────────
+  async function loadManifest() {
+    try {
+      showBrowserError('');
+      setPlayEnabled(false);
 
-        // Clear the placeholder and populate options
-        el.topicSelect.innerHTML = '';
-        topics.forEach(topic => {
-          const opt = document.createElement('option');
-          opt.value       = topic.filename;
-          opt.textContent = topic.label;
-          el.topicSelect.appendChild(opt);
-        });
+      const res = await fetch(MANIFEST_URL);
+      if (!res.ok) throw new Error(`Manifest HTTP ${res.status}`);
 
-        // Re-enable controls now that options exist
-        el.topicSelect.disabled = false;
-        el.loadBtn.disabled     = false;
-        el.randomBtn.disabled   = false;
-        state.allTopics = topics;
-        buildCategoryFilters(topics);
-        renderTopicGrid();
-      })
-      .catch(err => {
-        console.error('Failed to load topic manifest:', err);
-        el.topicSelect.innerHTML = '<option value="">Failed to load topics</option>';
-        console.error('Manifest load failed:', err);
-        el.topicGrid.innerHTML =
-          '<p class="browser-error">⚠ Could not load topics — check your connection and try again.</p>';
-      });
+      const topics = await res.json();
+      if (!Array.isArray(topics) || topics.length === 0) {
+        throw new Error('topics.json is empty or malformed');
+      }
+
+      state.allTopics = topics;
+      state.selectedTopic = null;
+      state.activeFilter = 'All';
+      state.searchQuery = '';
+
+      if (el.topicSearch) el.topicSearch.value = '';
+      if (el.selectedLabel) el.selectedLabel.textContent = '';
+
+      buildCategoryFilters();
+      renderTopicGrid();
+    } catch (err) {
+      console.error('Manifest load failed:', err);
+      if (el.topicCount) el.topicCount.textContent = '0 topics';
+      showBrowserError('⚠ Could not load topics. Check topics.json, the GitHub Pages URL, or your connection.');
+    }
   }
 
-  loadManifest();
-  // ─── Category Filter Chips ──────────────────────────────────────
-  function buildCategoryFilters(topics) {
-    // Derive unique categories in the order they first appear
+  function buildCategoryFilters() {
+    if (!el.categoryFilters) return;
+
+    const categories = ['All'];
     const seen = new Set();
-    const cats = ['All'];
-    topics.forEach(t => {
-      if (t.category && !seen.has(t.category)) {
-        seen.add(t.category);
-        cats.push(t.category);
+
+    state.allTopics.forEach(topic => {
+      if (topic.category && !seen.has(topic.category)) {
+        seen.add(topic.category);
+        categories.push(topic.category);
       }
     });
 
-  // ─── Load Topic ─────────────────────────────────────────────────
-  el.loadBtn.addEventListener('click', loadTopic);
     el.categoryFilters.innerHTML = '';
-    cats.forEach(cat => {
+
+    categories.forEach(category => {
       const chip = document.createElement('button');
-      chip.className   = 'filter-chip' + (cat === state.activeFilter ? ' active' : '');
-      chip.textContent = cat;
+      chip.type = 'button';
+      chip.className = `filter-chip${category === state.activeFilter ? ' active' : ''}`;
+      chip.textContent = category;
+
       chip.addEventListener('click', () => {
-        state.activeFilter = cat;
-        el.categoryFilters.querySelectorAll('.filter-chip')
-          .forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
+        state.activeFilter = category;
+        renderCategoryFilterState();
         renderTopicGrid();
       });
+
       el.categoryFilters.appendChild(chip);
     });
   }
 
-  // ─── Topic Grid ─────────────────────────────────────────────────
-  // Adding a new topic never requires touching JS or HTML —
-  // just add an entry to topics.json and it appears here automatically.
+  function renderCategoryFilterState() {
+    if (!el.categoryFilters) return;
+
+    el.categoryFilters.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.classList.toggle('active', chip.textContent === state.activeFilter);
+    });
+  }
+
   function renderTopicGrid() {
-    const { allTopics, activeFilter, searchQuery, selectedTopic } = state;
+    if (!el.topicGrid) return;
 
-    let filtered = allTopics;
-    if (activeFilter !== 'All') {
-      filtered = filtered.filter(t => t.category === activeFilter);
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(t => t.label.toLowerCase().includes(q));
-    }
+    const filtered = getFilteredTopics();
 
-    // Update count label
-    el.topicCount.textContent = filtered.length === allTopics.length
-      ? `${allTopics.length} topics`
-      : `${filtered.length} of ${allTopics.length} topics`;
+    if (el.topicCount) {
+      el.topicCount.textContent = filtered.length === state.allTopics.length
+        ? `${state.allTopics.length} topics`
+        : `${filtered.length} of ${state.allTopics.length} topics`;
+    }
 
     el.topicGrid.innerHTML = '';
 
     if (filtered.length === 0) {
-      el.topicGrid.innerHTML = '<p class="browser-empty">No topics match your search.</p>';
+      showBrowserError('No topics match your search.');
       return;
     }
 
-  function loadTopic() {
-    const filename = el.topicSelect.value;
-    if (!filename) return;
     filtered.forEach(topic => {
-      const card = document.createElement('div');
-      const isSelected = selectedTopic?.filename === topic.filename;
-      card.className = 'topic-card' + (isSelected ? ' selected' : '');
+      const card = document.createElement('button');
+      const isSelected = state.selectedTopic?.filename === topic.filename;
+
+      card.type = 'button';
+      card.className = `topic-card${isSelected ? ' selected' : ''}`;
       card.innerHTML = `
-        <span class="topic-card-icon">${topic.icon ?? '📚'}</span>
-        <span class="topic-card-name">${topic.label}</span>
-        <span class="topic-card-cat">${topic.category ?? ''}</span>
+        <span class="topic-card-icon">${escapeHTML(topic.icon ?? '📚')}</span>
+        <span class="topic-card-name">${escapeHTML(topic.label ?? topic.filename)}</span>
+        <span class="topic-card-cat">${escapeHTML(topic.category ?? '')}</span>
       `;
+
       card.addEventListener('click', () => selectTopic(topic));
       el.topicGrid.appendChild(card);
     });
   }
 
-  function selectTopic(topic) {
-    state.selectedTopic = topic;
-    renderTopicGrid();
-    el.selectedLabel.innerHTML = `Selected: <strong>${topic.label}</strong>`;
-    el.playBtn.disabled = false;
+  function getFilteredTopics() {
+    let filtered = [...state.allTopics];
+
+    if (state.activeFilter !== 'All') {
+      filtered = filtered.filter(topic => topic.category === state.activeFilter);
+    }
+
+    if (state.searchQuery) {
+      const query = state.searchQuery.toLowerCase();
+      filtered = filtered.filter(topic => {
+        const label = topic.label?.toLowerCase() ?? '';
+        const category = topic.category?.toLowerCase() ?? '';
+        return label.includes(query) || category.includes(query);
+      });
+    }
+
+    return filtered;
   }
 
-  // ─── Play & Random ──────────────────────────────────────────────
-  el.playBtn.addEventListener('click', () => {
-    if (state.selectedTopic) loadTopic(state.selectedTopic);
+  function selectTopic(topic) {
+    state.selectedTopic = topic;
+
+    if (el.selectedLabel) {
+      el.selectedLabel.innerHTML = `Selected: <strong>${escapeHTML(topic.label ?? topic.filename)}</strong>`;
+    }
+
+    setPlayEnabled(true);
+    renderTopicGrid();
+  }
+
+  function setPlayEnabled(enabled) {
+    if (el.playBtn) el.playBtn.disabled = !enabled;
+    if (el.randomBtn) el.randomBtn.disabled = state.allTopics.length === 0;
+  }
+
+  function showBrowserError(message) {
+    if (!el.topicGrid) return;
+    if (!message) return;
+    el.topicGrid.innerHTML = `<p class="browser-error">${escapeHTML(message)}</p>`;
+  }
+
+  // ─── Topic Browser Events ───────────────────────────────────────
+  el.topicSearch?.addEventListener('input', event => {
+    state.searchQuery = event.target.value.trim();
+
+    // Search should cover all topics, not just the current chip.
+    if (state.searchQuery && state.activeFilter !== 'All') {
+      state.activeFilter = 'All';
+      renderCategoryFilterState();
+    }
+
+    renderTopicGrid();
   });
 
-  el.randomBtn.addEventListener('click', () => {
+  el.randomBtn?.addEventListener('click', () => {
     if (!state.allTopics.length) return;
-    const pick = state.allTopics[Math.floor(Math.random() * state.allTopics.length)];
-    selectTopic(pick);
+
+    const filtered = getFilteredTopics();
+    const source = filtered.length ? filtered : state.allTopics;
+    const randomTopic = source[Math.floor(Math.random() * source.length)];
+
+    selectTopic(randomTopic);
   });
 
-    const jsonURL = `${BASE_URL}${filename}.json`;
-  // ─── Load Topic ─────────────────────────────────────────────────
-  function loadTopic(topic) {
-    const jsonURL = `${BASE_URL}${topic.filename}.json`;
+  el.playBtn?.addEventListener('click', () => {
+    if (!state.selectedTopic) return;
+    loadTopic(state.selectedTopic);
+  });
 
-    showLoading(true);
-    // Hide browser, show spinner
-    el.topicBrowser.classList.add('hidden');
-    el.nowPlaying.classList.add('hidden');
-    el.board.classList.add('hidden');
-    el.loadingState.classList.remove('hidden');
+  el.changeTopicBtn?.addEventListener('click', () => {
+    clearTimer();
+    clearCloseInterval();
+    closeModal();
 
-    fetch(jsonURL)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
-      .then(data => {
-        gameState.categories = data.categories;
-        gameState.questions   = data.questions;
-        gameState.answeredCells.clear();
-        state.categories = data.categories;
-        state.questions  = data.questions;
-        state.answeredCells.clear();
-        resetScore();
-        buildBoard();
-        showLoading(false);
+    state.categories = [];
+    state.questions = {};
+    state.activeQuestion = null;
+    state.answeredCells.clear();
+    resetScore();
 
-        el.loadingState.classList.add('hidden');
-        el.board.classList.remove('hidden');
-        el.nowPlaying.classList.remove('hidden');
-        el.nowPlayingTopic.textContent = topic.label;
-      })
-      .catch(err => {
-        console.error('Failed to load topic:', err);
-        showLoading(false);
-        el.emptyState.classList.remove('hidden');
-        el.emptyState.querySelector('p').innerHTML =
-          '<strong>Failed to load — check your connection and try again.</strong>';
-        console.error('Topic load failed:', err);
-        el.loadingState.classList.add('hidden');
-        el.topicBrowser.classList.remove('hidden');
-        // Briefly flash an error in the grid
-        el.topicGrid.insertAdjacentHTML('afterbegin',
-          '<p class="browser-error">⚠ Failed to load that topic — try again.</p>');
-        setTimeout(() => renderTopicGrid(), 3000);
-      });
+    el.nowPlaying?.classList.add('hidden');
+    el.board?.classList.add('hidden');
+    el.loadingState?.classList.add('hidden');
+    el.topicBrowser?.classList.remove('hidden');
+  });
+
+  // ─── Load Topic / Board ─────────────────────────────────────────
+  async function loadTopic(topic) {
+    if (!topic?.filename) return;
+
+    try {
+      const jsonURL = `${BASE_URL}${topic.filename}.json`;
+
+      showLoading(true);
+      el.topicBrowser?.classList.add('hidden');
+      el.nowPlaying?.classList.add('hidden');
+      el.board?.classList.add('hidden');
+
+      const res = await fetch(jsonURL);
+      if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
+
+      const data = await res.json();
+      validateTopicData(data);
+
+      state.categories = data.categories;
+      state.questions = data.questions;
+      state.answeredCells.clear();
+      state.activeQuestion = null;
+
+      resetScore();
+      buildBoard();
+
+      el.nowPlayingTopic.textContent = topic.label ?? topic.filename;
+      el.nowPlaying?.classList.remove('hidden');
+      el.board?.classList.remove('hidden');
+    } catch (err) {
+      console.error('Topic load failed:', err);
+
+      el.topicBrowser?.classList.remove('hidden');
+      showBrowserError(`⚠ Failed to load ${topic.label ?? topic.filename}. Check that ${topic.filename}.json exists and is valid.`);
+      setTimeout(renderTopicGrid, 3500);
+    } finally {
+      showLoading(false);
+    }
+  }
+
+  function validateTopicData(data) {
+    if (!Array.isArray(data.categories)) {
+      throw new Error('Topic JSON is missing a categories array');
+    }
+
+    if (!data.questions || typeof data.questions !== 'object') {
+      throw new Error('Topic JSON is missing a questions object');
+    }
   }
 
   function showLoading(isLoading) {
-    el.loadingState.classList.toggle('hidden', !isLoading);
-    el.emptyState.classList.add('hidden');
-  // ─── Change Topic ───────────────────────────────────────────────
-  el.changeTopicBtn.addEventListener('click', () => {
-    el.nowPlaying.classList.add('hidden');
-    el.board.classList.add('hidden');
-    if (!isLoading && gameState.categories.length) {
-      el.board.classList.remove('hidden');
-    }
-  }
-    el.topicBrowser.classList.remove('hidden');
-    state.categories = [];
-    state.answeredCells.clear();
-    resetScore();
-  });
-
-  // ─── Random Category ────────────────────────────────────────────
-  el.randomBtn.addEventListener('click', () => {
-    const options = el.topicSelect.options;
-    el.topicSelect.selectedIndex = Math.floor(Math.random() * options.length);
-  // ─── Search ─────────────────────────────────────────────────────
-  el.topicSearch.addEventListener('input', e => {
-    state.searchQuery = e.target.value.trim();
-    // Reset to All so search covers every category
-    if (state.activeFilter !== 'All') {
-      state.activeFilter = 'All';
-      el.categoryFilters.querySelectorAll('.filter-chip').forEach((c, i) => {
-        c.classList.toggle('active', i === 0);
-      });
-    }
-    renderTopicGrid();
-  });
-
-  // ─── Reset ──────────────────────────────────────────────────────
-  el.resetBtn.addEventListener('click', () => {
-    if (!gameState.categories.length) return;
-    gameState.answeredCells.clear();
-    if (!state.categories.length) return;
-    state.answeredCells.clear();
-    resetScore();
-    buildBoard();
-  });
-
-  function resetScore() {
-    gameState.score = 0;
-    state.score = 0;
-    updateScoreDisplay();
+    el.loadingState?.classList.toggle('hidden', !isLoading);
   }
 
-  function updateScoreDisplay() {
-    const s = gameState.score;
-    const s = state.score;
-    el.score.textContent = (s < 0 ? '-$' : '$') + Math.abs(s).toLocaleString();
-    el.score.classList.toggle('negative', s < 0);
-  }
-
-  // ─── Build Board ────────────────────────────────────────────────
   function buildBoard() {
-    const { categories, questions } = gameState;
+    if (!el.board) return;
+
     const { categories, questions } = state;
     el.board.innerHTML = '';
 
-    const colCount = categories.length;
-    el.board.style.gridTemplateColumns = `repeat(${colCount}, 1fr)`;
+    if (!categories.length) {
+      el.board.classList.add('hidden');
+      return;
+    }
 
-    const firstCatId = categories[0]?.id;
-    const values = firstCatId
-      ? Object.keys(questions[firstCatId] ?? {})
-          .map(Number)
-          .sort((a, b) => a - b)
-      ? Object.keys(questions[firstCatId] ?? {}).map(Number).sort((a, b) => a - b)
+    el.board.style.gridTemplateColumns = `repeat(${categories.length}, 1fr)`;
+
+    const firstCategoryId = categories[0]?.id;
+    const values = firstCategoryId && questions[firstCategoryId]
+      ? Object.keys(questions[firstCategoryId]).map(Number).sort((a, b) => a - b)
       : [100, 200, 300, 400, 500];
 
-    // Row 1: Category headers
-    // Row 1: headers
-    categories.forEach(cat => {
-      const div = document.createElement('div');
-      div.className   = 'cat-header';
-      div.textContent = cat.name;
-      el.board.appendChild(div);
+    categories.forEach(category => {
+      const header = document.createElement('div');
+      header.className = 'cat-header';
+      header.textContent = category.name ?? category.id;
+      el.board.appendChild(header);
     });
 
-    // Remaining rows: question cells per value
-    // Rows 2+: question cells
     values.forEach((value, rowIndex) => {
-      categories.forEach(cat => {
-        const cell = document.createElement('div');
-@@ -174,35 +266,33 @@ document.addEventListener('DOMContentLoaded', () => {
-        cell.dataset.catName  = cat.name;
+      categories.forEach((category, colIndex) => {
+        const cell = document.createElement('button');
+        const cellKey = getCellKey(category.id, value);
 
-        const cellKey = `${cat.id}-${value}`;
-        if (gameState.answeredCells.has(cellKey)) {
+        cell.type = 'button';
+        cell.className = 'question-cell';
+        cell.dataset.category = category.id;
+        cell.dataset.value = String(value);
+        cell.dataset.catName = category.name ?? category.id;
+        cell.style.animationDelay = `${(rowIndex * categories.length + colIndex) * 35}ms`;
+
         if (state.answeredCells.has(cellKey)) {
           cell.classList.add('answered');
+          cell.disabled = true;
         } else {
           cell.textContent = `$${value.toLocaleString()}`;
         }
 
-        cell.style.animationDelay = `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
-        cell.style.animationDelay =
-          `${(rowIndex * categories.length + categories.indexOf(cat)) * 35}ms`;
         cell.addEventListener('click', handleCellClick);
         el.board.appendChild(cell);
       });
     });
   }
 
-  // ─── Handle Cell Click ──────────────────────────────────────────
-  // ─── Cell Click ─────────────────────────────────────────────────
   function handleCellClick(event) {
     const cell = event.currentTarget;
     if (cell.classList.contains('answered')) return;
 
-    const category    = cell.dataset.category;
-    const value       = parseInt(cell.dataset.value);
-    const catName     = cell.dataset.catName;
-    const questionData = gameState.questions[category]?.[value];
-    const category     = cell.dataset.category;
-    const value        = parseInt(cell.dataset.value);
-    const catName      = cell.dataset.catName;
+    const category = cell.dataset.category;
+    const value = Number(cell.dataset.value);
+    const catName = cell.dataset.catName;
     const questionData = state.questions[category]?.[value];
 
     if (!questionData) {
       console.warn('No question found for', category, value);
       return;
     }
-    if (!questionData) { console.warn('No question for', category, value); return; }
 
-    gameState.activeQuestion = { category, value, element: cell };
     state.activeQuestion = { category, value, element: cell };
     openModal(catName, value, questionData.question);
   }
 
-@@ -222,110 +312,88 @@ document.addEventListener('DOMContentLoaded', () => {
+  // ─── Modal ──────────────────────────────────────────────────────
+  function openModal(categoryName, value, question) {
+    clearTimer();
+    clearCloseInterval();
+
+    el.modalCategory.textContent = categoryName;
+    el.modalValue.textContent = `$${value.toLocaleString()}`;
+    el.questionText.textContent = question;
+    el.answer.value = '';
+    el.answer.disabled = false;
+    el.submitBtn.disabled = false;
+    el.resultArea.className = 'result-area hidden';
+    el.resultArea.innerHTML = '';
+    el.closeBtn.classList.add('hidden');
+    el.timeLeft.textContent = '30';
 
     el.modal.classList.add('open');
     requestAnimationFrame(() => el.answer.focus());
@@ -405,38 +396,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function closeModal() {
     clearTimer();
-    el.modal.classList.remove('open');
-    gameState.activeQuestion = null;
+    clearCloseInterval();
+
+    el.modal?.classList.remove('open');
     state.activeQuestion = null;
   }
 
-  el.closeBtn.addEventListener('click', closeModal);
+  el.closeBtn?.addEventListener('click', closeModal);
 
-  document.querySelector('.modal-backdrop').addEventListener('click', () => {
-    if (!el.closeBtn.classList.contains('hidden')) {
-      closeModal();
-    }
+  el.modalBackdrop?.addEventListener('click', () => {
     if (!el.closeBtn.classList.contains('hidden')) closeModal();
   });
 
   // ─── Timer ──────────────────────────────────────────────────────
   function startTimer(seconds) {
     let timeLeft = seconds;
-    el.timeLeft.textContent     = timeLeft;
-    el.timerBar.style.transform = 'scaleX(1)';
-    el.timeLeft.textContent      = timeLeft;
-    el.timerBar.style.transform  = 'scaleX(1)';
-    el.timerBar.style.background = 'linear-gradient(90deg, var(--red), var(--gold))';
+
+    el.timeLeft.textContent = String(timeLeft);
     el.timerBar.style.transition = 'none';
+    el.timerBar.style.transform = 'scaleX(1)';
+    el.timerBar.style.background = 'linear-gradient(90deg, var(--red), var(--gold))';
 
+    // Force reflow so the animation restarts every question.
     void el.timerBar.offsetWidth;
-    el.timerBar.style.transition = `transform ${seconds}s linear`;
-    el.timerBar.style.transform  = 'scaleX(0)';
 
-    gameState.timerInterval = setInterval(() => {
+    el.timerBar.style.transition = `transform ${seconds}s linear`;
+    el.timerBar.style.transform = 'scaleX(0)';
+
     state.timerInterval = setInterval(() => {
       timeLeft -= 1;
-      el.timeLeft.textContent = timeLeft;
+      el.timeLeft.textContent = String(timeLeft);
 
       if (timeLeft <= 5) {
         el.timerBar.style.background = 'var(--red)';
@@ -446,112 +435,173 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimer();
         handleTimeUp();
       }
-      if (timeLeft <= 5) el.timerBar.style.background = 'var(--red)';
-      if (timeLeft <= 0) { clearTimer(); handleTimeUp(); }
     }, 1000);
   }
 
   function clearTimer() {
-    clearInterval(gameState.timerInterval);
-    gameState.timerInterval = null;
-    clearInterval(state.timerInterval);
-    state.timerInterval = null;
+    if (state.timerInterval) {
+      clearInterval(state.timerInterval);
+      state.timerInterval = null;
+    }
+  }
+
+  function clearCloseInterval() {
+    if (state.closeInterval) {
+      clearInterval(state.closeInterval);
+      state.closeInterval = null;
+    }
   }
 
   function handleTimeUp() {
-    const { category, value, element } = gameState.activeQuestion ?? {};
-    const { category, value, element } = state.activeQuestion ?? {};
-    if (!category) return;
+    const active = state.activeQuestion;
+    if (!active) return;
 
-    const questionData = gameState.questions[category]?.[value];
-    const answers      = questionData?.answers ?? [];
-    const explanation  = questionData?.explanation ?? '';
+    const questionData = state.questions[active.category]?.[active.value];
 
-    const q = state.questions[category]?.[value];
     el.submitBtn.disabled = true;
-    el.answer.disabled    = true;
+    el.answer.disabled = true;
 
-    showResult('timeup', '⏰ Time\'s Up!', answers, explanation);
-    showResult('timeup', "⏰ Time's Up!", q?.answers ?? [], q?.explanation ?? '');
-    markAnswered(element, `${category}-${value}`);
+    showResult('timeup', "⏰ Time's Up!", questionData?.answers ?? [], questionData?.explanation ?? '');
+    markAnswered(active.element, getCellKey(active.category, active.value));
     scheduleClose(5);
   }
 
   // ─── Submit Answer ──────────────────────────────────────────────
-  // ─── Submit ─────────────────────────────────────────────────────
-  el.submitBtn.addEventListener('click', submitAnswer);
+  el.submitBtn?.addEventListener('click', submitAnswer);
 
-  el.answer.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !el.submitBtn.disabled) submitAnswer();
+  el.answer?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !el.submitBtn.disabled) {
+      submitAnswer();
+    }
   });
 
   function submitAnswer() {
     clearTimer();
 
-    const { category, value, element } = gameState.activeQuestion ?? {};
-    const { category, value, element } = state.activeQuestion ?? {};
-    if (!category) return;
-    const q = state.questions[category]?.[value];
-    if (!q) return;
+    const active = state.activeQuestion;
+    if (!active) return;
 
-    const questionData = gameState.questions[category]?.[value];
+    const questionData = state.questions[active.category]?.[active.value];
     if (!questionData) return;
 
-    const userAnswer  = el.answer.value.trim().toLowerCase();
-    const accepted    = questionData.answers;
-    const explanation = questionData.explanation ?? '';
-
-    const isCorrect = accepted.some(a => userAnswer === a.toLowerCase());
-    const userAnswer = el.answer.value.trim().toLowerCase();
-    const isCorrect  = q.answers.some(a => userAnswer === a.toLowerCase());
+    const userAnswer = normalizeAnswer(el.answer.value);
+    const acceptedAnswers = Array.isArray(questionData.answers) ? questionData.answers : [];
+    const isCorrect = acceptedAnswers.some(answer => normalizeAnswer(answer) === userAnswer);
 
     el.submitBtn.disabled = true;
-    el.answer.disabled    = true;
+    el.answer.disabled = true;
 
     if (isCorrect) {
-      gameState.score += value;
-      showResult('correct', '✓ Correct!', accepted, explanation);
-      state.score += value;
-      showResult('correct', '✓ Correct!', q.answers, q.explanation ?? '');
+      state.score += active.value;
+      showResult('correct', '✓ Correct!', acceptedAnswers, questionData.explanation ?? '');
     } else {
-      gameState.score -= value;
-      showResult('incorrect', '✗ Incorrect', accepted, explanation);
-      state.score -= value;
-      showResult('incorrect', '✗ Incorrect', q.answers, q.explanation ?? '');
+      state.score -= active.value;
+      showResult('incorrect', '✗ Incorrect', acceptedAnswers, questionData.explanation ?? '');
     }
 
     updateScoreDisplay();
-    markAnswered(element, `${category}-${value}`);
+    markAnswered(active.element, getCellKey(active.category, active.value));
     scheduleClose(5);
   }
 
+  function normalizeAnswer(value) {
+    return String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/^what\s+is\s+/i, '')
+      .replace(/^who\s+is\s+/i, '')
+      .replace(/^what\s+are\s+/i, '')
+      .replace(/^who\s+are\s+/i, '')
+      .replace(/[?.!,:'"]/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
   // ─── Result Display ─────────────────────────────────────────────
-  // ─── Result ─────────────────────────────────────────────────────
   function showResult(type, headline, answers, explanation) {
+    const answerList = Array.isArray(answers) && answers.length
+      ? answers.map(answer => escapeHTML(answer)).join(', ')
+      : 'No answer listed';
+
     el.resultArea.className = `result-area ${type}`;
     el.resultArea.innerHTML = `
-@@ -355,23 +423,18 @@ document.addEventListener('DOMContentLoaded', () => {
+      <div class="result-headline">${escapeHTML(headline)}</div>
+      <div class="result-answers"><strong>Answer:</strong> ${answerList}</div>
+      ${explanation ? `<div class="result-explanation">${escapeHTML(explanation)}</div>` : ''}
+      <div class="result-closing-bar">
+        <div class="result-closing-fill"></div>
+      </div>
+    `;
+  }
 
   function markAnswered(element, key) {
     if (!element) return;
-    gameState.answeredCells.add(key);
+
     state.answeredCells.add(key);
     element.classList.add('answered');
     element.textContent = '';
+    element.disabled = true;
   }
 
-  // ─── Auto-close modal after result ─────────────────────────────
   function scheduleClose(seconds) {
-    el.closeBtn.classList.remove('hidden');
-    let left = seconds;
+    clearCloseInterval();
 
-    const interval = setInterval(() => {
+    el.closeBtn.classList.remove('hidden');
+    el.timeLeft.textContent = String(seconds);
+
+    const fill = el.resultArea.querySelector('.result-closing-fill');
+    if (fill) {
+      fill.style.transition = 'none';
+      fill.style.transform = 'scaleX(1)';
+      void fill.offsetWidth;
+      fill.style.transition = `transform ${seconds}s linear`;
+      fill.style.transform = 'scaleX(0)';
+    }
+
+    let left = seconds;
+    state.closeInterval = setInterval(() => {
       left -= 1;
-      el.timeLeft.textContent = left;
+      el.timeLeft.textContent = String(left);
+
       if (left <= 0) {
-        clearInterval(interval);
         closeModal();
       }
-      if (left <= 0) { clearInterval(interval); closeModal(); }
     }, 1000);
   }
+
+  // ─── Score / Reset ──────────────────────────────────────────────
+  el.resetBtn?.addEventListener('click', () => {
+    if (!state.categories.length) return;
+
+    clearTimer();
+    clearCloseInterval();
+    closeModal();
+
+    state.answeredCells.clear();
+    resetScore();
+    buildBoard();
+  });
+
+  function resetScore() {
+    state.score = 0;
+    updateScoreDisplay();
+  }
+
+  function updateScoreDisplay() {
+    const score = state.score;
+    el.score.textContent = `${score < 0 ? '-$' : '$'}${Math.abs(score).toLocaleString()}`;
+    el.score.classList.toggle('negative', score < 0);
+  }
+
+  function getCellKey(categoryId, value) {
+    return `${categoryId}-${value}`;
+  }
+
+  function escapeHTML(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+});
