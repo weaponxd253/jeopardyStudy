@@ -365,7 +365,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const jsonURL = `${BASE_URL}${filename}.json`;
     const res = await fetch(jsonURL);
     if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
-    return res.json();
+    const text = await res.text();
+    return parseTopicJSON(text, filename);
+  }
+
+  function parseTopicJSON(text, filename) {
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      const trimmed = String(text ?? '').trim();
+
+      if (trimmed.startsWith('"categories"') || trimmed.startsWith('"questions"')) {
+        try {
+          return JSON.parse(`{${trimmed}}`);
+        } catch {
+          // Fall through to the original error so the console points at the real parse failure.
+        }
+      }
+
+      throw new Error(`Topic JSON for ${filename} is malformed: ${err.message}`);
+    }
   }
 
   function normalizeTopicData(data) {
