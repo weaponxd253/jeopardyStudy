@@ -16,6 +16,7 @@
   --modal-bg:     rgba(5, 10, 40, 0.92);
   --radius:       8px;
   --radius-lg:    14px;
+  --board-min-col: 150px;
   --font-display: 'Playfair Display', Georgia, serif;
   --font-body:    'DM Sans', sans-serif;
 }
@@ -33,6 +34,11 @@ body {
   align-items: center;
   overflow-x: hidden;
   position: relative;
+}
+
+button,
+input {
+  -webkit-tap-highlight-color: transparent;
 }
 
 .bg-grid {
@@ -322,6 +328,7 @@ main {
   font-weight: 600;
   color: var(--white);
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 .topic-card-cat {
   font-size: 0.62rem;
@@ -397,6 +404,10 @@ main {
   font-size: 1rem;
   font-weight: 700;
   color: var(--gold);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .now-playing-spacer { flex: 1; }
 
@@ -426,6 +437,7 @@ main {
   display: grid;
   gap: 8px;
   width: 100%;
+  grid-template-columns: repeat(var(--category-count, 6), minmax(var(--board-min-col), 1fr));
 }
 
 .cat-header {
@@ -446,6 +458,7 @@ main {
   align-items: center;
   justify-content: center;
   min-height: 72px;
+  overflow-wrap: anywhere;
 }
 
 .question-cell {
@@ -475,6 +488,13 @@ main {
   transform: translateY(-3px) scale(1.02);
   box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 20px rgba(245, 197, 24, 0.2);
   border-color: rgba(245, 197, 24, 0.4);
+}
+.question-cell.unavailable {
+  background: linear-gradient(135deg, #151a45 0%, #0b102d 100%);
+  color: rgba(255,255,255,0.22);
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
 }
 .question-cell.answered {
   background: linear-gradient(135deg, #1a1f4a 0%, #0e1335 100%);
@@ -520,6 +540,9 @@ main {
   border-radius: var(--radius-lg);
   padding: 40px 36px 36px;
   width: min(92vw, 620px);
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow:
     0 0 0 1px rgba(245, 197, 24, 0.1),
     0 32px 80px rgba(0,0,0,0.8),
@@ -622,6 +645,7 @@ main {
   color: var(--white);
   outline: none;
   transition: border-color 0.2s, background 0.2s;
+  min-height: 44px;
 }
 #answer:focus { border-color: var(--gold); background: rgba(255,255,255,0.1); }
 #answer::placeholder { color: rgba(255,255,255,0.3); }
@@ -655,26 +679,128 @@ main {
 
 /* ─── Responsive ────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .logo { font-size: 1.5rem; }
-  header { padding: 14px 16px; }
+  :root { --board-min-col: 118px; }
+
+  .logo { font-size: 1.35rem; }
+  header {
+    padding: 12px 14px;
+    position: sticky;
+    top: 0;
+    background: rgba(5,10,50,0.94);
+    backdrop-filter: blur(10px);
+  }
+  .header-inner { gap: 12px; }
+  .header-controls { gap: 10px; }
+  .score-label { font-size: 0.58rem; }
+  .score-value { font-size: 1.2rem; }
+  .btn { min-height: 44px; padding: 9px 14px; }
   main { padding: 16px 12px 40px; gap: 14px; }
-  .topic-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-  .topic-card { padding: 14px 8px 12px; }
+  .browser-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .topic-search {
+    width: 100%;
+    max-width: none;
+    min-height: 44px;
+  }
+  .topic-count { align-self: flex-end; }
+  .category-filters {
+    margin-inline: -12px;
+    padding: 0 12px 6px;
+    scroll-padding-inline: 12px;
+  }
+  .filter-chip { min-height: 36px; }
+  .topic-grid { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 8px; }
+  .topic-card { min-height: 112px; padding: 14px 8px 12px; }
   .topic-card-icon { font-size: 1.5rem; }
   .topic-card-name { font-size: 0.75rem; }
-  .jeopardy-board { gap: 5px; }
-  .cat-header { padding: 10px 6px; min-height: 54px; font-size: 0.65rem; }
-  .question-cell { min-height: 56px; padding: 10px 4px; }
-  .modal-content { padding: 28px 20px 24px; }
+  .browser-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin: 0 -12px -40px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(5,10,50,0.96);
+    border-top-color: rgba(245,197,24,0.18);
+    backdrop-filter: blur(10px);
+  }
+  .selected-label { min-width: 100%; order: -1; }
+  .browser-footer .btn { flex: 1; }
+  .now-playing { padding: 10px 12px; }
+  .now-playing-inner { gap: 8px; }
+  .now-playing-topic { flex: 1 1 100%; }
+  .now-playing-spacer { display: none; }
+  .now-playing .btn { width: 100%; }
+  .jeopardy-board {
+    gap: 6px;
+    overflow-x: auto;
+    margin-inline: -12px;
+    padding: 0 12px 6px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .cat-header {
+    position: sticky;
+    top: 72px;
+    z-index: 2;
+    padding: 10px 6px;
+    min-height: 58px;
+    font-size: 0.68rem;
+    scroll-snap-align: start;
+  }
+  .question-cell {
+    min-height: 62px;
+    min-width: var(--board-min-col);
+    padding: 10px 4px;
+    font-size: 1.15rem;
+  }
+  .question-cell:hover { transform: none; }
+  .modal {
+    align-items: flex-end;
+  }
+  .modal-content {
+    width: 100vw;
+    max-height: 92vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 28px 20px calc(22px + env(safe-area-inset-bottom));
+  }
+  .modal.open .modal-content {
+    transform: translateY(0);
+  }
   .modal-value-label { font-size: 1.5rem; }
   .question-text { font-size: 1rem; }
   .answer-row { flex-direction: column; }
   #answer { width: 100%; }
+  #submit-answer { width: 100%; }
 }
 
 @media (max-width: 480px) {
-  .score-display { display: none; }
+  :root { --board-min-col: 104px; }
+
+  .logo {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .header-controls { gap: 8px; }
+  .score-display { align-items: flex-end; }
+  .score-label { display: none; }
+  .score-value { font-size: 1rem; }
+  .btn { padding-inline: 10px; }
   .topic-search { max-width: 100%; }
-  .topic-grid { grid-template-columns: repeat(3, 1fr); }
+  .topic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .browser-footer { flex-wrap: wrap; }
+  .cat-header {
+    top: 68px;
+    min-height: 54px;
+    font-size: 0.62rem;
+  }
+  .question-cell {
+    min-height: 58px;
+    font-size: 1rem;
+  }
+  .result-area { padding: 14px; }
 }

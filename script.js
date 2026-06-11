@@ -17,6 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
     selectedTopic: null,
     activeFilter: 'All',
     searchQuery: '',
+    browserMessage: '',
+    browserMessageType: 'error',
+    topicErrorTimeout: null,
   };
 
   // ─── DOM Refs ───────────────────────────────────────────────────
@@ -62,14 +65,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // ─── Manifest / Topic Browser ───────────────────────────────────
   async function loadManifest() {
     try {
-      showBrowserError('');
+      setBrowserMessage('');
       setPlayEnabled(false);
 
       const res = await fetch(MANIFEST_URL);
       if (!res.ok) throw new Error(`Manifest HTTP ${res.status}`);
 
-      const topics = await res.json();
-      if (!Array.isArray(topics) || topics.length === 0) {
+      const manifest = await res.json();
+      const topics = normalizeManifest(manifest);
+
+      if (!topics.length) {
         throw new Error('topics.json is empty or malformed');
       }
 
@@ -86,8 +91,61 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       console.error('Manifest load failed:', err);
       if (el.topicCount) el.topicCount.textContent = '0 topics';
-      showBrowserError('⚠ Could not load topics. Check topics.json, the GitHub Pages URL, or your connection.');
+      setBrowserMessage('Could not load topics. Check topics.json, the GitHub Pages URL, or your connection.');
+      renderTopicGrid();
     }
+  }
+
+  function normalizeManifest(manifest) {
+    if (Array.isArray(manifest)) {
+      return manifest
+        .map((topic, index) => normalizeTopicEntry(topic, index))
+        .filter(Boolean);
+    }
+
+    if (manifest && typeof manifest === 'object') {
+      if (Array.isArray(manifest.topics)) {
+        return manifest.topics
+          .map((topic, index) => normalizeTopicEntry(topic, index))
+          .filter(Boolean);
+      }
+
+      if (Array.isArray(manifest.categories) && manifest.questions) {
+        return [{
+          label: manifest.label ?? manifest.name ?? 'Programming',
+          filename: manifest.filename ?? 'programming',
+          category: manifest.category ?? 'Study Set',
+          inlineData: manifest,
+        }];
+      }
+    }
+
+    return [];
+  }
+
+  function normalizeTopicEntry(topic, index) {
+    if (typeof topic === 'string') {
+      return {
+        label: toTitleLabel(topic),
+        filename: topic,
+        category: '',
+      };
+    }
+
+    if (!topic || typeof topic !== 'object') return null;
+
+    const filename = topic.filename ?? topic.slug ?? topic.id;
+    const inlineData = Array.isArray(topic.categories) && topic.questions ? topic : null;
+
+    if (!filename && !inlineData) return null;
+
+    return {
+      ...topic,
+      label: topic.label ?? topic.name ?? toTitleLabel(filename) ?? `Topic ${index + 1}`,
+      filename: filename ? String(filename) : `topic-${index + 1}`,
+      category: topic.category ?? topic.group ?? '',
+      inlineData,
+    };
   }
 
   function buildCategoryFilters() {
@@ -142,8 +200,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     el.topicGrid.innerHTML = '';
 
+    if (state.browserMessage) {
+      const message = document.createElement('p');
+      message.className = state.browserMessageType === 'empty' ? 'browser-empty' : 'browser-error';
+      message.textContent = state.browserMessage;
+      el.topicGrid.appendChild(message);
+      return;
+    }
+
     if (filtered.length === 0) {
-      showBrowserError('No topics match your search.');
+      const empty = document.createElement('p');
+      empty.className = 'browser-empty';
+      empty.textContent = 'No topics match your search.';
+      el.topicGrid.appendChild(empty);
       return;
     }
 
@@ -184,6 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function selectTopic(topic) {
+    setBrowserMessage('');
     state.selectedTopic = topic;
 
     if (el.selectedLabel) {
@@ -199,15 +269,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el.randomBtn) el.randomBtn.disabled = state.allTopics.length === 0;
   }
 
-  function showBrowserError(message) {
-    if (!el.topicGrid) return;
-    if (!message) return;
-    el.topicGrid.innerHTML = `<p class="browser-error">${escapeHTML(message)}</p>`;
+  function setBrowserMessage(message, type = 'error') {
+    state.browserMessage = message;
+    state.browserMessageType = type;
   }
 
   // ─── Topic Browser Events ───────────────────────────────────────
   el.topicSearch?.addEventListener('input', event => {
     state.searchQuery = event.target.value.trim();
+    setBrowserMessage('');
 
     // Search should cover all topics, not just the current chip.
     if (state.searchQuery && state.activeFilter !== 'All') {
@@ -252,24 +322,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── Load Topic / Board ─────────────────────────────────────────
   async function loadTopic(topic) {
-    if (!topic?.filename) return;
+    if (!topic?.filename && !topic?.inlineData) return;
 
     try {
-      const jsonURL = `${BASE_URL}${topic.filename}.json`;
-
       showLoading(true);
       el.topicBrowser?.classList.add('hidden');
       el.nowPlaying?.classList.add('hidden');
       el.board?.classList.add('hidden');
 
-      const res = await fetch(jsonURL);
-      if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
+      const data = topic.inlineData ?? await fetchTopicData(topic.filename);
+      const normalizedData = normalizeTopicData(data);
 
-      const data = await res.json();
-      validateTopicData(data);
-
-      state.categories = data.categories;
-      state.questions = data.questions;
+      state.categories = normalizedData.categories;
+      state.questions = normalizedData.questions;
       state.answeredCells.clear();
       state.activeQuestion = null;
 
@@ -283,14 +348,27 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Topic load failed:', err);
 
       el.topicBrowser?.classList.remove('hidden');
-      showBrowserError(`⚠ Failed to load ${topic.label ?? topic.filename}. Check that ${topic.filename}.json exists and is valid.`);
-      setTimeout(renderTopicGrid, 3500);
+      setBrowserMessage(`Failed to load ${topic.label ?? topic.filename}. Check that ${topic.filename}.json exists and is valid.`);
+      renderTopicGrid();
+
+      clearTimeout(state.topicErrorTimeout);
+      state.topicErrorTimeout = setTimeout(() => {
+        setBrowserMessage('');
+        renderTopicGrid();
+      }, 3500);
     } finally {
       showLoading(false);
     }
   }
 
-  function validateTopicData(data) {
+  async function fetchTopicData(filename) {
+    const jsonURL = `${BASE_URL}${filename}.json`;
+    const res = await fetch(jsonURL);
+    if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
+    return res.json();
+  }
+
+  function normalizeTopicData(data) {
     if (!Array.isArray(data.categories)) {
       throw new Error('Topic JSON is missing a categories array');
     }
@@ -298,6 +376,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!data.questions || typeof data.questions !== 'object') {
       throw new Error('Topic JSON is missing a questions object');
     }
+
+    return {
+      categories: data.categories
+        .map((category, index) => ({
+          id: category.id ?? String(index + 1),
+          name: category.name ?? category.label ?? `Category ${index + 1}`,
+        }))
+        .filter(category => category.id !== undefined && category.id !== null),
+      questions: data.questions,
+    };
   }
 
   function showLoading(isLoading) {
@@ -315,7 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    el.board.style.gridTemplateColumns = `repeat(${categories.length}, 1fr)`;
+    el.board.style.setProperty('--category-count', categories.length);
 
     const firstCategoryId = categories[0]?.id;
     const values = firstCategoryId && questions[firstCategoryId]
@@ -344,6 +432,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.answeredCells.has(cellKey)) {
           cell.classList.add('answered');
           cell.disabled = true;
+        } else if (!state.questions[category.id]?.[value]) {
+          cell.classList.add('unavailable');
+          cell.disabled = true;
+          cell.textContent = '—';
         } else {
           cell.textContent = `$${value.toLocaleString()}`;
         }
@@ -512,7 +604,7 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/^who\s+is\s+/i, '')
       .replace(/^what\s+are\s+/i, '')
       .replace(/^who\s+are\s+/i, '')
-      .replace(/[?.!,:'"]/g, '')
+      .replace(/[?.!,:'"<>;]/g, '')
       .replace(/\s+/g, ' ');
   }
 
@@ -603,5 +695,14 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function toTitleLabel(value) {
+    if (!value) return '';
+
+    return String(value)
+      .replace(/[_-]+/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, char => char.toUpperCase());
   }
 });
