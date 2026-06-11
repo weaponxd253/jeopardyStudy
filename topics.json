@@ -8,5 +8,6 @@
   { "label": "Sports",                "filename": "sports"            },
   { "label": "Game Consoles",         "filename": "gamingConsoles"    },
   { "label": "Licensed Practical Nurse", "filename": "lpn"            },
-  { "label": "Pokemon",                  "filename": "pokemon"         }
+  { "label": "Pokemon",                  "filename": "pokemon"        },
+  { "label": "Kaplan NGN Fundamentals",  "filename": "kaplan_ngn_fundamentals" }
 ]
