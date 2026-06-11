@@ -362,8 +362,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function fetchTopicData(filename) {
-    const jsonURL = `${BASE_URL}${filename}.json`;
-    const res = await fetch(jsonURL);
+    const jsonURL = `${BASE_URL}${filename}.json?v=${Date.now()}`;
+    const res = await fetch(jsonURL, { cache: 'no-store' });
     if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
     const text = await res.text();
     return parseTopicJSON(text, filename);
