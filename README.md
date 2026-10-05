@@ -7,8 +7,8 @@ a countdown timer, and score tracking.
 
 ## Features
 
-- 23 study topics across Tech & CS, Health Sciences, Natural Science, Math,
-  Humanities, Social Science, Pop Culture, and Movies & TV
+- 31 study topics across Tech & CS, Health Sciences, Natural Science, Math,
+  Humanities, Social Science, Aviation, Sports, Pop Culture, and Movies & TV
 - Topic browser with search, category filter chips, and a Random pick
 - 30-second countdown timer per question with visual progress bar
 - Score tracking — correct answers add points, wrong answers deduct them
