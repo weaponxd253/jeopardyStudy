@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     return {
       ...topic,
-      label: topic.label ?? topic.name ?? toTitleLabel(filename) ?? `Topic ${index + 1}`,
+      label: topic.label ?? topic.name ?? (toTitleLabel(filename) || `Topic ${index + 1}`),
       filename: filename ? String(filename) : `topic-${index + 1}`,
       category: topic.category ?? topic.group ?? '',
       inlineData,
@@ -306,7 +306,7 @@ document.addEventListener('DOMContentLoaded', () => {
   el.changeTopicBtn?.addEventListener('click', () => {
     clearTimer();
     clearCloseInterval();
-    closeModal();
+    closeModal({ restoreFocus: false });
 
     state.categories = [];
     state.questions = {};
@@ -348,11 +348,14 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Topic load failed:', err);
 
       el.topicBrowser?.classList.remove('hidden');
-      setBrowserMessage(`Failed to load ${topic.label ?? topic.filename}. Check that ${topic.filename}.json exists and is valid.`);
+      const failMessage = `Failed to load ${topic.label ?? topic.filename}. Check that ${topic.filename}.json exists and is valid.`;
+      setBrowserMessage(failMessage);
       renderTopicGrid();
 
       clearTimeout(state.topicErrorTimeout);
       state.topicErrorTimeout = setTimeout(() => {
+        // Only clear our own message, not one set after it.
+        if (state.browserMessage !== failMessage) return;
         setBrowserMessage('');
         renderTopicGrid();
       }, 3500);
@@ -362,8 +365,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function fetchTopicData(filename) {
-    const jsonURL = `${BASE_URL}${filename}.json?v=${Date.now()}`;
-    const res = await fetch(jsonURL, { cache: 'no-store' });
+    // 'no-cache' revalidates with the server, so edited files show up right
+    // away but unchanged ones come back as a cheap 304 instead of a full download.
+    const jsonURL = `${BASE_URL}${filename}.json`;
+    const res = await fetch(jsonURL, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`Topic HTTP ${res.status}`);
     const text = await res.text();
     return parseTopicJSON(text, filename);
@@ -396,15 +401,38 @@ document.addEventListener('DOMContentLoaded', () => {
       throw new Error('Topic JSON is missing a questions object');
     }
 
+    const questionKeys = Object.keys(data.questions);
+
     return {
-      categories: data.categories
-        .map((category, index) => ({
-          id: category.id ?? String(index + 1),
+      categories: data.categories.map((rawCategory, index) => {
+        const category = typeof rawCategory === 'object' && rawCategory !== null
+          ? rawCategory
+          : { name: rawCategory };
+
+        return {
+          id: resolveCategoryKey(category, index, data.questions, questionKeys),
           name: category.name ?? category.label ?? `Category ${index + 1}`,
-        }))
-        .filter(category => category.id !== undefined && category.id !== null),
+        };
+      }),
       questions: data.questions,
     };
+  }
+
+  // Questions may be keyed by id, by name, or by position. Pick whichever key
+  // actually exists so a category never ends up pointing at nothing.
+  function resolveCategoryKey(category, index, questions, questionKeys) {
+    const candidates = [
+      category.id,
+      category.name,
+      category.label,
+      index + 1,
+      index,
+      questionKeys[index],
+    ]
+      .filter(key => key !== undefined && key !== null && key !== '')
+      .map(String);
+
+    return candidates.find(key => Object.hasOwn(questions, key)) ?? candidates[0];
   }
 
   function showLoading(isLoading) {
@@ -424,9 +452,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     el.board.style.setProperty('--category-count', categories.length);
 
-    const firstCategoryId = categories[0]?.id;
-    const values = firstCategoryId && questions[firstCategoryId]
-      ? Object.keys(questions[firstCategoryId]).map(Number).sort((a, b) => a - b)
+    // Rows are the union of every category's values, so a category with a
+    // different value ladder still gets all of its questions on the board.
+    const valueSet = new Set();
+    categories.forEach(category => {
+      Object.keys(questions[category.id] ?? {}).forEach(key => {
+        const value = Number(key);
+        if (Number.isFinite(value)) valueSet.add(value);
+      });
+    });
+
+    const values = valueSet.size
+      ? [...valueSet].sort((a, b) => a - b)
       : [100, 200, 300, 400, 500];
 
     categories.forEach(category => {
@@ -484,6 +521,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ─── Modal ──────────────────────────────────────────────────────
+  const QUESTION_SECONDS = 30;
+  const CLOSE_SECONDS = 5;
+
   function openModal(categoryName, value, question) {
     clearTimer();
     clearCloseInterval();
@@ -497,33 +537,111 @@ document.addEventListener('DOMContentLoaded', () => {
     el.resultArea.className = 'result-area hidden';
     el.resultArea.innerHTML = '';
     el.closeBtn.classList.add('hidden');
-    el.timeLeft.textContent = '30';
+    el.timeLeft.textContent = String(QUESTION_SECONDS);
 
     el.modal.classList.add('open');
     requestAnimationFrame(() => el.answer.focus());
 
-    startTimer(30);
+    startTimer(QUESTION_SECONDS);
   }
 
-  function closeModal() {
+  function closeModal({ restoreFocus = true } = {}) {
+    const wasOpen = el.modal?.classList.contains('open');
+    const cell = state.activeQuestion?.element;
+
     clearTimer();
     clearCloseInterval();
 
     el.modal?.classList.remove('open');
     state.activeQuestion = null;
+
+    if (wasOpen && restoreFocus) focusNextCell(cell);
   }
 
-  el.closeBtn?.addEventListener('click', closeModal);
+  // Send focus back to the board: the cell just played if it is still
+  // clickable, otherwise the next open cell after it.
+  function focusNextCell(cell) {
+    if (!el.board || el.board.classList.contains('hidden')) return;
+
+    const cells = [...el.board.querySelectorAll('.question-cell')];
+    const start = Math.max(0, cells.indexOf(cell));
+    const ordered = [...cells.slice(start), ...cells.slice(0, start)];
+    const target = ordered.find(candidate => !candidate.disabled) ?? el.resetBtn;
+
+    target?.focus();
+  }
+
+  function canDismissModal() {
+    return el.modal.classList.contains('open') && !el.closeBtn.classList.contains('hidden');
+  }
+
+  el.closeBtn?.addEventListener('click', () => closeModal());
 
   el.modalBackdrop?.addEventListener('click', () => {
-    if (!el.closeBtn.classList.contains('hidden')) closeModal();
+    if (canDismissModal()) closeModal();
   });
 
-  // ─── Timer ──────────────────────────────────────────────────────
-  function startTimer(seconds) {
-    let timeLeft = seconds;
+  document.addEventListener('keydown', event => {
+    if (!el.modal.classList.contains('open')) return;
 
-    el.timeLeft.textContent = String(timeLeft);
+    if (event.key === 'Escape') {
+      if (canDismissModal()) {
+        event.preventDefault();
+        closeModal();
+      }
+      return;
+    }
+
+    if (event.key === 'Tab') trapFocus(event);
+  });
+
+  // Keep Tab / Shift+Tab cycling inside the dialog while it is open.
+  function trapFocus(event) {
+    const focusable = [...el.modal.querySelectorAll('button, input')]
+      .filter(node => !node.disabled && node.offsetParent !== null);
+
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const current = document.activeElement;
+
+    if (!el.modal.contains(current)) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && current === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && current === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  // ─── Timer ──────────────────────────────────────────────────────
+  // Countdowns are measured against a wall-clock deadline rather than by
+  // counting ticks, so throttled background tabs stay in sync with the bar.
+  function startCountdown(seconds, onTick, onDone) {
+    const deadline = Date.now() + seconds * 1000;
+    let lastShown = seconds;
+
+    return setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+
+      if (remaining !== lastShown) {
+        lastShown = remaining;
+        onTick(remaining);
+      }
+
+      if (remaining <= 0) onDone();
+    }, 200);
+  }
+
+  function startTimer(seconds) {
+    el.timeLeft.textContent = String(seconds);
     el.timerBar.style.transition = 'none';
     el.timerBar.style.transform = 'scaleX(1)';
     el.timerBar.style.background = 'linear-gradient(90deg, var(--red), var(--gold))';
@@ -534,19 +652,25 @@ document.addEventListener('DOMContentLoaded', () => {
     el.timerBar.style.transition = `transform ${seconds}s linear`;
     el.timerBar.style.transform = 'scaleX(0)';
 
-    state.timerInterval = setInterval(() => {
-      timeLeft -= 1;
-      el.timeLeft.textContent = String(timeLeft);
-
-      if (timeLeft <= 5) {
-        el.timerBar.style.background = 'var(--red)';
-      }
-
-      if (timeLeft <= 0) {
+    state.timerInterval = startCountdown(
+      seconds,
+      timeLeft => {
+        el.timeLeft.textContent = String(timeLeft);
+        if (timeLeft <= 5) el.timerBar.style.background = 'var(--red)';
+      },
+      () => {
         clearTimer();
         handleTimeUp();
-      }
-    }, 1000);
+      },
+    );
+  }
+
+  // Stop the bar where it is; clearing the interval alone leaves the CSS
+  // transition draining to zero after the player has already answered.
+  function freezeTimerBar() {
+    const current = getComputedStyle(el.timerBar).transform;
+    el.timerBar.style.transition = 'none';
+    el.timerBar.style.transform = current && current !== 'none' ? current : 'scaleX(1)';
   }
 
   function clearTimer() {
@@ -569,12 +693,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const questionData = state.questions[active.category]?.[active.value];
 
+    freezeTimerBar();
+    el.timeLeft.textContent = '0';
     el.submitBtn.disabled = true;
     el.answer.disabled = true;
 
     showResult('timeup', "⏰ Time's Up!", questionData?.answers ?? [], questionData?.explanation ?? '');
     markAnswered(active.element, getCellKey(active.category, active.value));
-    scheduleClose(5);
+    scheduleClose(CLOSE_SECONDS);
   }
 
   // ─── Submit Answer ──────────────────────────────────────────────
@@ -582,22 +708,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   el.answer?.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !el.submitBtn.disabled) {
+      // Without this, the same Enter press also "clicks" the close button that
+      // submitAnswer() moves focus to, closing the result immediately.
+      event.preventDefault();
       submitAnswer();
     }
   });
 
   function submitAnswer() {
-    clearTimer();
-
     const active = state.activeQuestion;
     if (!active) return;
 
     const questionData = state.questions[active.category]?.[active.value];
     if (!questionData) return;
 
+    clearTimer();
+    freezeTimerBar();
+
     const userAnswer = normalizeAnswer(el.answer.value);
     const acceptedAnswers = Array.isArray(questionData.answers) ? questionData.answers : [];
-    const isCorrect = acceptedAnswers.some(answer => normalizeAnswer(answer) === userAnswer);
+    const isCorrect = acceptedAnswers.some(answer => isAnswerMatch(userAnswer, normalizeAnswer(answer)));
 
     el.submitBtn.disabled = true;
     el.answer.disabled = true;
@@ -612,19 +742,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateScoreDisplay();
     markAnswered(active.element, getCellKey(active.category, active.value));
-    scheduleClose(5);
+    scheduleClose(CLOSE_SECONDS);
   }
+
+  const ANSWER_PREFIX = /^(?:(?:what|who|where|when)\s+(?:is|are|was|were)\s+|(?:what|who|where)'s\s+)/;
+  const LEADING_ARTICLE = /^(?:a|an|the)\s+/;
 
   function normalizeAnswer(value) {
     return String(value ?? '')
-      .trim()
       .toLowerCase()
-      .replace(/^what\s+is\s+/i, '')
-      .replace(/^who\s+is\s+/i, '')
-      .replace(/^what\s+are\s+/i, '')
-      .replace(/^who\s+are\s+/i, '')
-      .replace(/[?.!,:'"<>;]/g, '')
-      .replace(/\s+/g, ' ');
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')        // é → e, so "Pokemon" matches "Pokémon"
+      .replace(/[‘’`]/g, "'")
+      .trim()
+      .replace(ANSWER_PREFIX, '')
+      .replace(LEADING_ARTICLE, '')
+      .replace(/[-–—_/]+/g, ' ')
+      .replace(/[^\p{L}\p{N}\s+#]/gu, '')      // keep + and # for C++ / C#
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // Both arguments are already normalized. Longer word answers forgive a
+  // small typo; numbers and short answers must match exactly, since a near
+  // miss there ("1991" vs "1990", "cat" vs "car") is a different answer.
+  function isAnswerMatch(userAnswer, acceptedAnswer) {
+    if (!userAnswer || !acceptedAnswer) return false;
+    if (userAnswer === acceptedAnswer) return true;
+    if (/\d/.test(acceptedAnswer) || acceptedAnswer.length < 5) return false;
+
+    const allowed = acceptedAnswer.length < 9 ? 1 : 2;
+    if (Math.abs(userAnswer.length - acceptedAnswer.length) > allowed) return false;
+
+    return editDistance(userAnswer, acceptedAnswer) <= allowed;
+  }
+
+  function editDistance(a, b) {
+    let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+
+    for (let i = 1; i <= a.length; i += 1) {
+      const current = [i];
+      for (let j = 1; j <= b.length; j += 1) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      }
+      previous = current;
+    }
+
+    return previous[b.length];
   }
 
   // ─── Result Display ─────────────────────────────────────────────
@@ -641,6 +806,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="result-closing-bar">
         <div class="result-closing-fill"></div>
       </div>
+      <div class="result-closing-text">Closing in <span class="result-closing-count"></span>s</div>
     `;
   }
 
@@ -657,7 +823,13 @@ document.addEventListener('DOMContentLoaded', () => {
     clearCloseInterval();
 
     el.closeBtn.classList.remove('hidden');
-    el.timeLeft.textContent = String(seconds);
+    // The answer input is disabled now, so give focus somewhere useful.
+    el.closeBtn.focus();
+
+    // The close countdown lives in the result area; the question timer keeps
+    // showing where it stopped.
+    const count = el.resultArea.querySelector('.result-closing-count');
+    if (count) count.textContent = String(seconds);
 
     const fill = el.resultArea.querySelector('.result-closing-fill');
     if (fill) {
@@ -668,15 +840,13 @@ document.addEventListener('DOMContentLoaded', () => {
       fill.style.transform = 'scaleX(0)';
     }
 
-    let left = seconds;
-    state.closeInterval = setInterval(() => {
-      left -= 1;
-      el.timeLeft.textContent = String(left);
-
-      if (left <= 0) {
-        closeModal();
-      }
-    }, 1000);
+    state.closeInterval = startCountdown(
+      seconds,
+      left => {
+        if (count) count.textContent = String(left);
+      },
+      () => closeModal(),
+    );
   }
 
   // ─── Score / Reset ──────────────────────────────────────────────
@@ -685,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     clearTimer();
     clearCloseInterval();
-    closeModal();
+    closeModal({ restoreFocus: false });
 
     state.answeredCells.clear();
     resetScore();
